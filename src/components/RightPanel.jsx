@@ -1,6 +1,6 @@
 /**
  * 右侧面板
- * 输出预览区：状态展示 + 消息流 + 预览内容 + 用户交互
+ * 输出预览区：状态展示 + 预览内容 + 消息流 + 用户交互
  */
 
 import StatusIndicator from './StatusIndicator'
@@ -48,51 +48,75 @@ export default function RightPanel({
         {/* 错误状态 */}
         {isFailed && <ErrorState message={errorMessage} onRetry={onRetry} />}
 
-        {/* 处理中（没有历史记录时显示加载动画） */}
-        {isProcessing && (!history || history.length === 0) && (
+        {/* 处理中（没有预览内容时显示加载动画） */}
+        {isProcessing && !preview && (
           <LoadingSpinner message={statusMessage} />
         )}
 
-        {/* 消息流（有历史记录时） */}
-        {!isIdle && !isFailed && history && history.length > 0 && (
+        {/* 预览内容区 - 等待反馈或已完成时直接显示 */}
+        {(isWaiting || isCompleted) && preview && preview.text && (
           <div className="space-y-6">
+            {/* 文案内容 */}
+            <div className={`rounded-2xl border-2 p-5 ${
+              isCompleted
+                ? 'border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-900/10'
+                : 'border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-900/10'
+            }`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className={`text-sm font-semibold ${
+                  isCompleted
+                    ? 'text-green-700 dark:text-green-400'
+                    : 'text-blue-700 dark:text-blue-400'
+                }`}>
+                  {isCompleted ? '最终文案' : '文案预览（初稿）'}
+                </h3>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(preview.text).catch(() => {
+                      const ta = document.createElement('textarea')
+                      ta.value = preview.text
+                      document.body.appendChild(ta)
+                      ta.select()
+                      document.execCommand('copy')
+                      document.body.removeChild(ta)
+                    })
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium
+                    text-gray-500 hover:bg-white hover:text-gray-700 hover:border-gray-300 transition-all
+                    dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                  复制文案
+                </button>
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                {preview.text}
+              </div>
+            </div>
+
+            {/* 图片 */}
+            {preview.images && preview.images.length > 0 && (
+              <PreviewContent preview={{ text: null, images: preview.images, videos: [] }} isCompleted={isCompleted} />
+            )}
+
+            {/* 视频 */}
+            {preview.videos && preview.videos.length > 0 && (
+              <PreviewContent preview={{ text: null, images: [], videos: preview.videos }} isCompleted={isCompleted} />
+            )}
+          </div>
+        )}
+
+        {/* 消息流 */}
+        {!isIdle && !isFailed && history && history.length > 0 && (
+          <div className="mt-6">
             <MessageStream history={history} isCompleted={isCompleted} />
 
-            {/* 处理中时在消息流下方追加加载状态 */}
             {isProcessing && (
-              <LoadingSpinner message={statusMessage} />
-            )}
-
-            {/* 等待用户反馈时显示预览内容 */}
-            {isWaiting && preview && (
-              <div className="mt-6 rounded-2xl border-2 border-primary-200 bg-primary-50/50 p-5 dark:border-primary-800 dark:bg-primary-900/10">
-                <div className="mb-4 flex items-center gap-2">
-                  <svg className="h-5 w-5 text-primary-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                  </svg>
-                  <h3 className="text-sm font-semibold text-primary-700 dark:text-primary-400">
-                    初稿预览
-                  </h3>
-                </div>
-                <PreviewContent preview={preview} isCompleted={false} />
-              </div>
-            )}
-
-            {/* 完成时显示最终预览（如果不在历史记录中已渲染） */}
-            {isCompleted && preview && (
-              <div className="mt-6 rounded-2xl border-2 border-green-200 bg-green-50/50 p-5 dark:border-green-800 dark:bg-green-900/10">
-                <div className="mb-4 flex items-center gap-2">
-                  <svg className="h-5 w-5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M20 6L9 17l-5-5" />
-                  </svg>
-                  <h3 className="text-sm font-semibold text-green-700 dark:text-green-400">
-                    最终结果
-                  </h3>
-                </div>
-                <PreviewContent preview={preview} isCompleted={true} />
+              <div className="mt-4">
+                <LoadingSpinner message={statusMessage} />
               </div>
             )}
           </div>
