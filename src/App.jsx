@@ -42,6 +42,7 @@ export default function App() {
   const [allowConfirm, setAllowConfirm] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [isActionSubmitting, setIsActionSubmitting] = useState(false)
+  const [isFirstRevise, setIsFirstRevise] = useState(true) // 是否首次修改
 
   // 轮询停止函数 ref
   const stopPollerRef = useRef(null)
@@ -156,7 +157,8 @@ export default function App() {
       setTaskStatus('revising')
       setStatusMessage('正在提交修改意见，等待 AI 重新生成...')
 
-      const result = await submitUserAction(taskId, 'revise', feedback, preview?.text || '')
+      const result = await submitUserAction(taskId, 'revise', feedback, isFirstRevise ? (preview?.text || '') : '')
+      if (isFirstRevise) setIsFirstRevise(false)
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '提交修改失败')
@@ -238,6 +240,7 @@ export default function App() {
     setAllowRevise(false)
     setAllowConfirm(false)
     setErrorMessage('')
+    setIsFirstRevise(true)
     cleanupPoller()
   }, [cleanupPoller])
 
