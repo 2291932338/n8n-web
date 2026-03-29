@@ -2,11 +2,8 @@ version: '3.8'
 
 services:
   workflow-studio:
-    # ========== 阿里云镜像（国内推荐） ==========
-    image: ${ALIYUN_REGISTRY:-registry.cn-wulanchabu.aliyuncs.com}/${ALIYUN_NAMESPACE:-polanpika666}/n8n-web:latest
-    # ========== GitHub 镜像（备用） ==========
-    # image: ghcr.io/2291932338/n8n-web:latest
-    # ========== 本地构建 ==========
+    image: kouil/n8n-web:latest
+    # 本地构建时使用:
     # build: .
     container_name: workflow-studio
     ports:
