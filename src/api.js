@@ -54,7 +54,7 @@ export async function queryStatus(taskId) {
  * 用户操作回传（同步等待 n8n 返回修改后的结果）
  * @returns {Promise<{success, status, message, preview?, history?}>}
  */
-export async function submitUserAction(taskId, action, feedback = '') {
+export async function submitUserAction(taskId, action, feedback = '', previousText = '') {
   if (config.MOCK_ENABLED) {
     return mockUserAction(taskId, action, feedback)
   }
@@ -62,7 +62,7 @@ export async function submitUserAction(taskId, action, feedback = '') {
   const res = await fetch(config.USER_ACTION_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ taskId, action, feedback }),
+    body: JSON.stringify({ taskId, action, feedback, previousText }),
   })
 
   if (!res.ok) {

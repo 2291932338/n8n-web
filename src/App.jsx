@@ -156,7 +156,7 @@ export default function App() {
       setTaskStatus('revising')
       setStatusMessage('正在提交修改意见，等待 AI 重新生成...')
 
-      const result = await submitUserAction(taskId, 'revise', feedback)
+      const result = await submitUserAction(taskId, 'revise', feedback, preview?.text || '')
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '提交修改失败')
@@ -196,7 +196,7 @@ export default function App() {
       setTaskStatus('processing')
       setStatusMessage('确认成功，等待生成最终版本...')
 
-      const result = await submitUserAction(taskId, 'confirm', '')
+      const result = await submitUserAction(taskId, 'confirm', '', preview?.text || '')
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '确认失败')
