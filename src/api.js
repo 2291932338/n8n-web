@@ -1,18 +1,15 @@
 /**
  * API 接口封装层
- * UI 层不直接调用 fetch，统一通过此模块与后端交互
- * 当 MOCK_ENABLED 时自动走 mock 逻辑
+ * 同步模式：前端等待 n8n 返回完整结果，不再轮询
  */
 
 import config from './config'
 import { mockStartWorkflow, mockQueryStatus, mockUserAction } from './mock'
 
 /**
- * 启动工作流
- * @param {string} platform - 'xiaohongshu' | 'douyin'
- * @param {string} sessionId - 前端生成的唯一会话 ID
- * @param {object} params - 表单参数
- * @returns {Promise<{success, taskId, status, message}>}
+ * 启动工作流（同步等待 AI 生成完成）
+ * n8n 需要在 AI 生成完毕后再 Respond to Webhook
+ * @returns {Promise<{success, taskId, status, preview, history, allowRevise, allowConfirm, message}>}
  */
 export async function startWorkflow(platform, sessionId, params) {
   if (config.MOCK_ENABLED) {
@@ -33,9 +30,7 @@ export async function startWorkflow(platform, sessionId, params) {
 }
 
 /**
- * 查询任务状态
- * @param {string} taskId - 任务 ID
- * @returns {Promise<{success, taskId, status, stepName, message, preview, history, allowRevise, allowConfirm}>}
+ * 查询任务状态（保留用于 Mock 模式）
  */
 export async function queryStatus(taskId) {
   if (config.MOCK_ENABLED) {
@@ -53,11 +48,8 @@ export async function queryStatus(taskId) {
 }
 
 /**
- * 用户操作回传
- * @param {string} taskId - 任务 ID
- * @param {'revise'|'confirm'} action - 用户操作类型
- * @param {string} feedback - 修改意见（confirm 时可为空）
- * @returns {Promise<{success, status, message}>}
+ * 用户操作回传（同步等待 n8n 返回修改后的结果）
+ * @returns {Promise<{success, status, message, preview?, history?}>}
  */
 export async function submitUserAction(taskId, action, feedback = '') {
   if (config.MOCK_ENABLED) {
@@ -78,8 +70,7 @@ export async function submitUserAction(taskId, action, feedback = '') {
 }
 
 /**
- * 轮询状态管理器
- * 创建一个可取消的轮询，定期查询任务状态
+ * 轮询状态管理器（仅 Mock 模式使用）
  */
 export function createStatusPoller(taskId, onUpdate, onError) {
   let timer = null
@@ -90,7 +81,6 @@ export function createStatusPoller(taskId, onUpdate, onError) {
     if (stopped) return
 
     try {
-      // 超时检测
       if (Date.now() - startTime > config.POLL_TIMEOUT) {
         onError(new Error('轮询超时，请检查工作流状态或刷新页面重试'))
         return
@@ -101,9 +91,7 @@ export function createStatusPoller(taskId, onUpdate, onError) {
 
       onUpdate(result)
 
-      // 如果任务还在处理中，继续轮询
       if (result.status === 'processing' || result.status === 'waiting_user_feedback') {
-        // waiting_user_feedback 时降低轮询频率
         const interval = result.status === 'waiting_user_feedback'
           ? config.POLL_INTERVAL * 3
           : config.POLL_INTERVAL
@@ -116,10 +104,8 @@ export function createStatusPoller(taskId, onUpdate, onError) {
     }
   }
 
-  // 启动轮询
   timer = setTimeout(poll, config.POLL_INTERVAL)
 
-  // 返回停止函数
   return () => {
     stopped = true
     if (timer) {

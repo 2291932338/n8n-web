@@ -104,7 +104,7 @@ export default function App() {
       setTaskStatus('submitting')
       setTaskId(null)
       setStepName('')
-      setStatusMessage('正在提交任务...')
+      setStatusMessage('正在提交任务，等待 AI 生成...')
       setPreview(null)
       setHistory([])
       setAllowRevise(false)
@@ -122,11 +122,26 @@ export default function App() {
 
       const newTaskId = result.taskId
       setTaskId(newTaskId)
-      setTaskStatus('processing')
-      setStatusMessage(result.message || '工作流已启动')
 
-      // 开始轮询
-      startPolling(newTaskId)
+      // 如果 n8n 直接返回了预览内容（同步模式），直接展示
+      if (result.preview) {
+        setPreview(result.preview)
+        setHistory(result.history || [])
+        setStepName(result.stepName || 'draft')
+        setStatusMessage(result.message || '初稿已生成，请预览并确认或提出修改意见')
+        setAllowRevise(result.allowRevise !== undefined ? result.allowRevise : true)
+        setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
+        setTaskStatus('waiting_user_feedback')
+      } else if (config.MOCK_ENABLED) {
+        // Mock 模式走轮询
+        setTaskStatus('processing')
+        setStatusMessage(result.message || '工作流已启动')
+        startPolling(newTaskId)
+      } else {
+        // 没有 preview 也没有 mock，标记完成
+        setTaskStatus('completed')
+        setStatusMessage(result.message || '工作流已完成')
+      }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '提交失败，请检查网络连接')
@@ -139,7 +154,7 @@ export default function App() {
     try {
       setIsActionSubmitting(true)
       setTaskStatus('revising')
-      setStatusMessage('正在提交修改意见...')
+      setStatusMessage('正在提交修改意见，等待 AI 重新生成...')
 
       const result = await submitUserAction(taskId, 'revise', feedback)
       if (!result.success) {
@@ -148,9 +163,23 @@ export default function App() {
         return
       }
 
-      setTaskStatus('processing')
-      setStatusMessage(result.message || '正在根据修改意见重新生成...')
-      startPolling(taskId)
+      // 如果返回了新的预览内容（同步模式）
+      if (result.preview) {
+        setPreview(result.preview)
+        setHistory(result.history || [])
+        setStepName(result.stepName || 'draft')
+        setStatusMessage(result.message || '已根据修改意见重新生成')
+        setAllowRevise(result.allowRevise !== undefined ? result.allowRevise : true)
+        setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
+        setTaskStatus(result.status === 'completed' ? 'completed' : 'waiting_user_feedback')
+      } else if (config.MOCK_ENABLED) {
+        setTaskStatus('processing')
+        setStatusMessage(result.message || '正在根据修改意见重新生成...')
+        startPolling(taskId)
+      } else {
+        setTaskStatus('completed')
+        setStatusMessage(result.message || '修改完成')
+      }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '提交修改失败')
@@ -165,7 +194,7 @@ export default function App() {
     try {
       setIsActionSubmitting(true)
       setTaskStatus('processing')
-      setStatusMessage('确认成功，正在生成最终版本...')
+      setStatusMessage('确认成功，等待生成最终版本...')
 
       const result = await submitUserAction(taskId, 'confirm', '')
       if (!result.success) {
@@ -174,8 +203,22 @@ export default function App() {
         return
       }
 
-      setStatusMessage(result.message || '正在生成最终版本...')
-      startPolling(taskId)
+      // 如果返回了最终内容（同步模式）
+      if (result.preview) {
+        setPreview(result.preview)
+        setHistory(result.history || [])
+        setStepName('final')
+        setStatusMessage(result.message || '内容生成完成！')
+        setAllowRevise(false)
+        setAllowConfirm(false)
+        setTaskStatus('completed')
+      } else if (config.MOCK_ENABLED) {
+        setStatusMessage(result.message || '正在生成最终版本...')
+        startPolling(taskId)
+      } else {
+        setTaskStatus('completed')
+        setStatusMessage(result.message || '已完成')
+      }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '确认失败')
