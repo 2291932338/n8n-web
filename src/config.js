@@ -22,7 +22,7 @@ const config = {
   // ========== Mock 模式 ==========
   // true: 使用前端模拟数据，无需真实 n8n 接口
   // false: 使用真实接口
-  MOCK_ENABLED: true,
+  MOCK_ENABLED: false,
 
   // Mock 模式下各步骤延迟（毫秒），模拟真实处理时间
   MOCK_DELAYS: {
