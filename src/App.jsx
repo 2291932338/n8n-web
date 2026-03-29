@@ -32,7 +32,7 @@ export default function App() {
   const [platform, setPlatform] = useState('xiaohongshu')
 
   // ========== 任务状态 ==========
-  const [taskStatus, setTaskStatus] = useState('idle') // idle | submitting | processing | waiting_user_feedback | revising | completed | failed
+  const [taskStatus, setTaskStatus] = useState('idle')
   const [taskId, setTaskId] = useState(null)
   const [stepName, setStepName] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
@@ -42,7 +42,10 @@ export default function App() {
   const [allowConfirm, setAllowConfirm] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [isActionSubmitting, setIsActionSubmitting] = useState(false)
-  const [isFirstRevise, setIsFirstRevise] = useState(true) // 是否首次修改
+  const [previewHistory, setPreviewHistory] = useState([]) // 历史文案版本
+
+  // 用 ref 追踪首次修改，避免 useCallback 闭包问题
+  const isFirstReviseRef = useRef(true)
 
   // 轮询停止函数 ref
   const stopPollerRef = useRef(null)
@@ -101,7 +104,6 @@ export default function App() {
   // ========== 提交表单 ==========
   const handleSubmit = useCallback(async (formData) => {
     try {
-      // 重置状态
       setTaskStatus('submitting')
       setTaskId(null)
       setStepName('')
@@ -111,6 +113,8 @@ export default function App() {
       setAllowRevise(false)
       setAllowConfirm(false)
       setErrorMessage('')
+      setPreviewHistory([])
+      isFirstReviseRef.current = true
 
       const sessionId = uuidv4()
       const result = await startWorkflow(platform, sessionId, formData)
@@ -124,7 +128,6 @@ export default function App() {
       const newTaskId = result.taskId
       setTaskId(newTaskId)
 
-      // 如果 n8n 直接返回了预览内容（同步模式），直接展示
       if (result.preview) {
         setPreview(result.preview)
         setHistory(result.history || [])
@@ -133,13 +136,13 @@ export default function App() {
         setAllowRevise(result.allowRevise !== undefined ? result.allowRevise : true)
         setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
         setTaskStatus('waiting_user_feedback')
+        // 保存初稿到历史
+        setPreviewHistory([{ version: 1, label: '初稿', text: result.preview.text, timestamp: Date.now() }])
       } else if (config.MOCK_ENABLED) {
-        // Mock 模式走轮询
         setTaskStatus('processing')
         setStatusMessage(result.message || '工作流已启动')
         startPolling(newTaskId)
       } else {
-        // 没有 preview 也没有 mock，标记完成
         setTaskStatus('completed')
         setStatusMessage(result.message || '工作流已完成')
       }
@@ -157,15 +160,16 @@ export default function App() {
       setTaskStatus('revising')
       setStatusMessage('正在提交修改意见，等待 AI 重新生成...')
 
-      const result = await submitUserAction(taskId, 'revise', feedback, isFirstRevise ? (preview?.text || '') : '')
-      if (isFirstRevise) setIsFirstRevise(false)
+      const sendPreviousText = isFirstReviseRef.current ? (preview?.text || '') : ''
+      const result = await submitUserAction(taskId, 'revise', feedback, sendPreviousText)
+      isFirstReviseRef.current = false
+
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '提交修改失败')
         return
       }
 
-      // 如果返回了新的预览内容（同步模式）
       if (result.preview) {
         setPreview(result.preview)
         setHistory(result.history || [])
@@ -174,6 +178,17 @@ export default function App() {
         setAllowRevise(result.allowRevise !== undefined ? result.allowRevise : true)
         setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
         setTaskStatus(result.status === 'completed' ? 'completed' : 'waiting_user_feedback')
+        // 保存修改版到历史
+        setPreviewHistory(prev => [
+          ...prev,
+          {
+            version: prev.length + 1,
+            label: '第' + prev.length + '次修改',
+            feedback: feedback,
+            text: result.preview.text,
+            timestamp: Date.now()
+          }
+        ])
       } else if (config.MOCK_ENABLED) {
         setTaskStatus('processing')
         setStatusMessage(result.message || '正在根据修改意见重新生成...')
@@ -188,7 +203,7 @@ export default function App() {
     } finally {
       setIsActionSubmitting(false)
     }
-  }, [taskId, startPolling])
+  }, [taskId, preview, startPolling])
 
   // ========== 用户操作：确认继续 ==========
   const handleConfirm = useCallback(async () => {
@@ -205,7 +220,6 @@ export default function App() {
         return
       }
 
-      // 如果返回了最终内容（同步模式）
       if (result.preview) {
         setPreview(result.preview)
         setHistory(result.history || [])
@@ -214,6 +228,11 @@ export default function App() {
         setAllowRevise(false)
         setAllowConfirm(false)
         setTaskStatus('completed')
+        // 保存终稿到历史
+        setPreviewHistory(prev => [
+          ...prev,
+          { version: prev.length + 1, label: '终稿', text: result.preview.text, timestamp: Date.now() }
+        ])
       } else if (config.MOCK_ENABLED) {
         setStatusMessage(result.message || '正在生成最终版本...')
         startPolling(taskId)
@@ -227,7 +246,7 @@ export default function App() {
     } finally {
       setIsActionSubmitting(false)
     }
-  }, [taskId, startPolling])
+  }, [taskId, preview, startPolling])
 
   // ========== 重试 ==========
   const handleRetry = useCallback(() => {
@@ -240,7 +259,8 @@ export default function App() {
     setAllowRevise(false)
     setAllowConfirm(false)
     setErrorMessage('')
-    setIsFirstRevise(true)
+    setPreviewHistory([])
+    isFirstReviseRef.current = true
     cleanupPoller()
   }, [cleanupPoller])
 
@@ -282,6 +302,7 @@ export default function App() {
             statusMessage={statusMessage}
             preview={preview}
             history={history}
+            previewHistory={previewHistory}
             allowRevise={allowRevise}
             allowConfirm={allowConfirm}
             errorMessage={errorMessage}
@@ -302,6 +323,7 @@ export default function App() {
           statusMessage={statusMessage}
           preview={preview}
           history={history}
+          previewHistory={previewHistory}
           allowRevise={allowRevise}
           allowConfirm={allowConfirm}
           errorMessage={errorMessage}
