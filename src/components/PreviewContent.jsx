@@ -80,14 +80,23 @@ export default function PreviewContent({ preview, isCompleted }) {
               配图预览 ({images.length})
             </h4>
             <button
-              onClick={() => {
-                images.forEach((url, i) => {
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `image_${i + 1}`
-                  a.target = '_blank'
-                  a.click()
-                })
+              onClick={async () => {
+                for (let i = 0; i < images.length; i++) {
+                  try {
+                    const res = await fetch(images[i])
+                    const blob = await res.blob()
+                    const ext = blob.type.split('/')[1] || 'jpg'
+                    const blobUrl = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = blobUrl
+                    a.download = `image_${i + 1}.${ext}`
+                    a.click()
+                    URL.revokeObjectURL(blobUrl)
+                    if (i < images.length - 1) await new Promise(r => setTimeout(r, 500))
+                  } catch {
+                    window.open(images[i], '_blank')
+                  }
+                }
               }}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium
                 text-gray-500 hover:bg-white hover:text-gray-700 hover:border-gray-300 transition-all
@@ -139,14 +148,22 @@ export default function PreviewContent({ preview, isCompleted }) {
               视频预览
             </h4>
             <button
-              onClick={() => {
-                videos.forEach((url, i) => {
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `video_${i + 1}`
-                  a.target = '_blank'
-                  a.click()
-                })
+              onClick={async () => {
+                for (let i = 0; i < videos.length; i++) {
+                  try {
+                    const res = await fetch(videos[i])
+                    const blob = await res.blob()
+                    const blobUrl = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = blobUrl
+                    a.download = `video_${i + 1}.mp4`
+                    a.click()
+                    URL.revokeObjectURL(blobUrl)
+                    if (i < videos.length - 1) await new Promise(r => setTimeout(r, 500))
+                  } catch {
+                    window.open(videos[i], '_blank')
+                  }
+                }
               }}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium
                 text-gray-500 hover:bg-white hover:text-gray-700 hover:border-gray-300 transition-all
