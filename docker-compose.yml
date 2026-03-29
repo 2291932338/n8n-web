@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  workflow-studio:
+    image: ghcr.io/${GITHUB_USER:-your-github-username}/n8n-workflow-studio:latest
+    # 本地构建时使用:
+    # build: .
+    container_name: workflow-studio
+    ports:
+      - "${PORT:-3000}:80"
+    environment:
+      # ========== 方式一：统一 n8n 地址（推荐） ==========
+      - N8N_BASE_URL=${N8N_BASE_URL:-https://your-n8n-domain.com}
+
+      # ========== 方式二：分别指定每个接口 ==========
+      # - START_WORKFLOW_URL=https://n8n.example.com/webhook/start-workflow
+      # - STATUS_QUERY_URL=https://n8n.example.com/webhook/query-status
+      # - USER_ACTION_URL=https://n8n.example.com/webhook/user-action
+
+      # ========== Mock 模式 ==========
+      # 设为 false 连接真实 n8n
+      - MOCK_ENABLED=${MOCK_ENABLED:-false}
+    restart: unless-stopped
