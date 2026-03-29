@@ -26,7 +26,9 @@ export async function startWorkflow(platform, sessionId, params) {
     throw new Error(`启动工作流失败: ${res.status} ${res.statusText}`)
   }
 
-  return res.json()
+  const data = await res.json()
+  // n8n 可能返回数组，取第一个元素
+  return Array.isArray(data) ? data[0] : data
 }
 
 /**
@@ -44,7 +46,8 @@ export async function queryStatus(taskId) {
     throw new Error(`查询状态失败: ${res.status} ${res.statusText}`)
   }
 
-  return res.json()
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
 }
 
 /**
@@ -66,7 +69,8 @@ export async function submitUserAction(taskId, action, feedback = '') {
     throw new Error(`提交操作失败: ${res.status} ${res.statusText}`)
   }
 
-  return res.json()
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
 }
 
 /**
