@@ -7,6 +7,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import config from './config'
 import { startWorkflow, submitUserAction, createStatusPoller } from './api'
+import { saveTask, getAllTasks, deleteTask, clearAllTasks } from './taskStore'
 import Header from './components/Header'
 import LeftPanel from './components/LeftPanel'
 import RightPanel from './components/RightPanel'
@@ -30,6 +31,24 @@ export default function App() {
 
   // ========== 平台选择 ==========
   const [platform, setPlatform] = useState('xiaohongshu')
+
+  // ========== 任务历史记录 ==========
+  const [taskRecords, setTaskRecords] = useState(() => getAllTasks())
+
+  // 刷新任务列表的辅助函数
+  const refreshTaskRecords = useCallback(() => {
+    setTaskRecords(getAllTasks())
+  }, [])
+
+  const handleDeleteTask = useCallback((taskId) => {
+    deleteTask(taskId)
+    refreshTaskRecords()
+  }, [refreshTaskRecords])
+
+  const handleClearTasks = useCallback((targetPlatform) => {
+    clearAllTasks(targetPlatform)
+    refreshTaskRecords()
+  }, [refreshTaskRecords])
 
   // ========== 任务状态 ==========
   const [taskStatus, setTaskStatus] = useState('idle')
@@ -95,14 +114,39 @@ export default function App() {
     cleanupPoller()
   }, [cleanupPoller])
 
+  // 用 ref 追踪当前任务 ID，供闭包内使用
+  const currentTaskIdRef = useRef(null)
+  // 用 ref 追踪当前平台，供闭包内使用
+  const currentPlatformRef = useRef('xiaohongshu')
+  // 用 ref 追踪当前表单参数
+  const currentFormParamsRef = useRef(null)
+
+  // 持久化当前任务状态到 taskStore
+  const persistTask = useCallback((patch) => {
+    const taskId = currentTaskIdRef.current
+    if (!taskId) return
+    saveTask({
+      taskId,
+      platform: currentPlatformRef.current,
+      formParams: currentFormParamsRef.current,
+      ...patch,
+    })
+    refreshTaskRecords()
+  }, [refreshTaskRecords])
+
   // 启动轮询
-  const startPolling = useCallback((tid) => {
+  const startPolling = useCallback((tid, currentPlatform) => {
     cleanupPoller()
-    stopPollerRef.current = createStatusPoller(tid, handleStatusUpdate, handlePollError)
+    stopPollerRef.current = createStatusPoller(tid, handleStatusUpdate, handlePollError, currentPlatform)
   }, [cleanupPoller, handleStatusUpdate, handlePollError])
 
   // ========== 提交表单 ==========
   const handleSubmit = useCallback(async (formData) => {
+    const createdAt = Date.now()
+    currentPlatformRef.current = platform
+    currentFormParamsRef.current = formData
+    currentTaskIdRef.current = null
+
     try {
       setTaskStatus('submitting')
       setTaskId(null)
@@ -122,13 +166,29 @@ export default function App() {
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '启动工作流失败')
+        // 任务失败时仍保存记录（此时 taskId 可能来自 result）
+        const failedId = result.taskId || sessionId
+        currentTaskIdRef.current = failedId
+        setTaskId(failedId)
+        persistTask({
+          taskId: failedId,
+          status: 'failed',
+          preview: null,
+          previewHistory: [],
+          stepName: '',
+          statusMessage: result.message || '启动工作流失败',
+          errorMessage: result.message || '启动工作流失败',
+          createdAt,
+        })
         return
       }
 
       const newTaskId = result.taskId
+      currentTaskIdRef.current = newTaskId
       setTaskId(newTaskId)
 
       if (result.preview) {
+        const initHistory = [{ version: 1, label: '初稿', text: result.preview.text, timestamp: Date.now() }]
         setPreview(result.preview)
         setHistory(result.history || [])
         setStepName(result.stepName || 'draft')
@@ -137,20 +197,59 @@ export default function App() {
         setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
         setTaskStatus('waiting_user_feedback')
         // 保存初稿到历史
-        setPreviewHistory([{ version: 1, label: '初稿', text: result.preview.text, timestamp: Date.now() }])
+        setPreviewHistory(initHistory)
+        persistTask({
+          taskId: newTaskId,
+          status: 'waiting_user_feedback',
+          preview: result.preview,
+          previewHistory: initHistory,
+          stepName: result.stepName || 'draft',
+          statusMessage: result.message || '初稿已生成',
+          errorMessage: null,
+          createdAt,
+        })
       } else if (config.MOCK_ENABLED) {
         setTaskStatus('processing')
         setStatusMessage(result.message || '工作流已启动')
-        startPolling(newTaskId)
+        persistTask({
+          taskId: newTaskId,
+          status: 'processing',
+          preview: null,
+          previewHistory: [],
+          stepName: '',
+          statusMessage: result.message || '工作流已启动',
+          errorMessage: null,
+          createdAt,
+        })
+        startPolling(newTaskId, platform)
       } else {
         setTaskStatus('completed')
         setStatusMessage(result.message || '工作流已完成')
+        persistTask({
+          taskId: newTaskId,
+          status: 'completed',
+          preview: result.preview || null,
+          previewHistory: [],
+          stepName: result.stepName || '',
+          statusMessage: result.message || '工作流已完成',
+          errorMessage: null,
+          createdAt,
+        })
       }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '提交失败，请检查网络连接')
+      persistTask({
+        status: 'failed',
+        preview: null,
+        previewHistory: [],
+        stepName: '',
+        statusMessage: '',
+        errorMessage: err.message || '提交失败，请检查网络连接',
+        createdAt,
+      })
     }
-  }, [platform, startPolling])
+  }, [platform, startPolling, persistTask])
 
   // ========== 用户操作：提交修改 ==========
   const handleRevise = useCallback(async (feedback) => {
@@ -161,12 +260,13 @@ export default function App() {
       setStatusMessage('正在提交修改意见，等待 AI 重新生成...')
 
       const sendPreviousText = isFirstReviseRef.current ? (preview?.text || '') : ''
-      const result = await submitUserAction(taskId, 'revise', feedback, sendPreviousText)
+      const result = await submitUserAction(taskId, 'revise', feedback, sendPreviousText, platform)
       isFirstReviseRef.current = false
 
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '提交修改失败')
+        persistTask({ status: 'failed', errorMessage: result.message || '提交修改失败' })
         return
       }
 
@@ -177,33 +277,48 @@ export default function App() {
         setStatusMessage(result.message || '已根据修改意见重新生成')
         setAllowRevise(result.allowRevise !== undefined ? result.allowRevise : true)
         setAllowConfirm(result.allowConfirm !== undefined ? result.allowConfirm : true)
-        setTaskStatus(result.status === 'completed' ? 'completed' : 'waiting_user_feedback')
+        const newStatus = result.status === 'completed' ? 'completed' : 'waiting_user_feedback'
+        setTaskStatus(newStatus)
         // 保存修改版到历史
-        setPreviewHistory(prev => [
-          ...prev,
-          {
-            version: prev.length + 1,
-            label: '第' + prev.length + '次修改',
-            feedback: feedback,
-            text: result.preview.text,
-            timestamp: Date.now()
-          }
-        ])
+        setPreviewHistory(prev => {
+          const updated = [
+            ...prev,
+            {
+              version: prev.length + 1,
+              label: '第' + prev.length + '次修改',
+              feedback: feedback,
+              text: result.preview.text,
+              timestamp: Date.now()
+            }
+          ]
+          persistTask({
+            status: newStatus,
+            preview: result.preview,
+            previewHistory: updated,
+            stepName: result.stepName || 'draft',
+            statusMessage: result.message || '已根据修改意见重新生成',
+            errorMessage: null,
+          })
+          return updated
+        })
       } else if (config.MOCK_ENABLED) {
         setTaskStatus('processing')
         setStatusMessage(result.message || '正在根据修改意见重新生成...')
-        startPolling(taskId)
+        persistTask({ status: 'processing', statusMessage: result.message || '正在根据修改意见重新生成...' })
+        startPolling(taskId, platform)
       } else {
         setTaskStatus('completed')
         setStatusMessage(result.message || '修改完成')
+        persistTask({ status: 'completed', statusMessage: result.message || '修改完成' })
       }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '提交修改失败')
+      persistTask({ status: 'failed', errorMessage: err.message || '提交修改失败' })
     } finally {
       setIsActionSubmitting(false)
     }
-  }, [taskId, preview, startPolling])
+  }, [taskId, preview, startPolling, platform, persistTask])
 
   // ========== 用户操作：确认继续 ==========
   const handleConfirm = useCallback(async () => {
@@ -213,10 +328,11 @@ export default function App() {
       setTaskStatus('processing')
       setStatusMessage('确认成功，等待生成最终版本...')
 
-      const result = await submitUserAction(taskId, 'confirm', '', preview?.text || '')
+      const result = await submitUserAction(taskId, 'confirm', '', preview?.text || '', platform)
       if (!result.success) {
         setTaskStatus('failed')
         setErrorMessage(result.message || '确认失败')
+        persistTask({ status: 'failed', errorMessage: result.message || '确认失败' })
         return
       }
 
@@ -229,24 +345,38 @@ export default function App() {
         setAllowConfirm(false)
         setTaskStatus('completed')
         // 保存终稿到历史
-        setPreviewHistory(prev => [
-          ...prev,
-          { version: prev.length + 1, label: '终稿', text: result.preview.text, timestamp: Date.now() }
-        ])
+        setPreviewHistory(prev => {
+          const updated = [
+            ...prev,
+            { version: prev.length + 1, label: '终稿', text: result.preview.text, timestamp: Date.now() }
+          ]
+          persistTask({
+            status: 'completed',
+            preview: result.preview,
+            previewHistory: updated,
+            stepName: 'final',
+            statusMessage: result.message || '内容生成完成！',
+            errorMessage: null,
+          })
+          return updated
+        })
       } else if (config.MOCK_ENABLED) {
         setStatusMessage(result.message || '正在生成最终版本...')
-        startPolling(taskId)
+        persistTask({ status: 'processing', statusMessage: result.message || '正在生成最终版本...' })
+        startPolling(taskId, platform)
       } else {
         setTaskStatus('completed')
         setStatusMessage(result.message || '已完成')
+        persistTask({ status: 'completed', statusMessage: result.message || '已完成' })
       }
     } catch (err) {
       setTaskStatus('failed')
       setErrorMessage(err.message || '确认失败')
+      persistTask({ status: 'failed', errorMessage: err.message || '确认失败' })
     } finally {
       setIsActionSubmitting(false)
     }
-  }, [taskId, preview, startPolling])
+  }, [taskId, preview, startPolling, platform, persistTask])
 
   // ========== 重试 ==========
   const handleRetry = useCallback(() => {
@@ -290,6 +420,9 @@ export default function App() {
             onSubmit={handleSubmit}
             isSubmitting={taskStatus === 'submitting'}
             taskStatus={taskStatus}
+            taskRecords={taskRecords}
+            onDeleteTask={handleDeleteTask}
+            onClearTasks={handleClearTasks}
           />
         </aside>
 

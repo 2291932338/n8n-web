@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/harry0703/MoneyPrinterTurbo/main/README.md\")",
+      "Bash(curl:*)",
+      "Bash(xxd \"E:/unxi/pro/1/docker-entrypoint.sh\")",
+      "WebSearch",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true)",
+      "Bash(echo \"Environment variable set: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC\")",
+      "Skill(update-config)",
+      "Bash(npm list:*)",
+      "Bash(claude:*)",
+      "Bash(where claude:*)",
+      "Bash(node --input-type=module --eval \"import config, { getUrlsForPlatform } from './src/config.js'; console.log\\('XHS:', getUrlsForPlatform\\('xiaohongshu'\\).START_WORKFLOW_URL\\); console.log\\('DY:', getUrlsForPlatform\\('douyin'\\).START_WORKFLOW_URL\\);\")",
+      "Bash(npm run:*)"
+    ]
+  }
+}

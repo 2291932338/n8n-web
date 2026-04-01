@@ -3,7 +3,7 @@
  * 同步模式：前端等待 n8n 返回完整结果，不再轮询
  */
 
-import config from './config'
+import config, { getUrlsForPlatform } from './config'
 import { mockStartWorkflow, mockQueryStatus, mockUserAction } from './mock'
 
 /**
@@ -16,7 +16,8 @@ export async function startWorkflow(platform, sessionId, params) {
     return mockStartWorkflow(platform, sessionId, params)
   }
 
-  const res = await fetch(config.START_WORKFLOW_URL, {
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.START_WORKFLOW_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ platform, sessionId, params }),
@@ -33,13 +34,16 @@ export async function startWorkflow(platform, sessionId, params) {
 
 /**
  * 查询任务状态（保留用于 Mock 模式）
+ * @param {string} taskId
+ * @param {'xiaohongshu' | 'douyin'} platform
  */
-export async function queryStatus(taskId) {
+export async function queryStatus(taskId, platform) {
   if (config.MOCK_ENABLED) {
     return mockQueryStatus(taskId)
   }
 
-  const url = `${config.STATUS_QUERY_URL}?taskId=${encodeURIComponent(taskId)}`
+  const urls = getUrlsForPlatform(platform)
+  const url = `${urls.STATUS_QUERY_URL}?taskId=${encodeURIComponent(taskId)}`
   const res = await fetch(url)
 
   if (!res.ok) {
@@ -52,14 +56,20 @@ export async function queryStatus(taskId) {
 
 /**
  * 用户操作回传（同步等待 n8n 返回修改后的结果）
+ * @param {string} taskId
+ * @param {'revise' | 'confirm'} action
+ * @param {string} feedback
+ * @param {string} previousText
+ * @param {'xiaohongshu' | 'douyin'} platform
  * @returns {Promise<{success, status, message, preview?, history?}>}
  */
-export async function submitUserAction(taskId, action, feedback = '', previousText = '') {
+export async function submitUserAction(taskId, action, feedback = '', previousText = '', platform = 'xiaohongshu') {
   if (config.MOCK_ENABLED) {
     return mockUserAction(taskId, action, feedback)
   }
 
-  const res = await fetch(config.USER_ACTION_URL, {
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.USER_ACTION_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ taskId, action, feedback, previousText }),
@@ -75,8 +85,12 @@ export async function submitUserAction(taskId, action, feedback = '', previousTe
 
 /**
  * 轮询状态管理器（仅 Mock 模式使用）
+ * @param {string} taskId
+ * @param {Function} onUpdate
+ * @param {Function} onError
+ * @param {'xiaohongshu' | 'douyin'} platform
  */
-export function createStatusPoller(taskId, onUpdate, onError) {
+export function createStatusPoller(taskId, onUpdate, onError, platform = 'xiaohongshu') {
   let timer = null
   let startTime = Date.now()
   let stopped = false
@@ -90,7 +104,7 @@ export function createStatusPoller(taskId, onUpdate, onError) {
         return
       }
 
-      const result = await queryStatus(taskId)
+      const result = await queryStatus(taskId, platform)
       if (stopped) return
 
       onUpdate(result)
@@ -118,3 +132,4 @@ export function createStatusPoller(taskId, onUpdate, onError) {
     }
   }
 }
+

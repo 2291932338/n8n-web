@@ -1,17 +1,29 @@
 /**
  * 全局配置文件
  * 所有接口地址、轮询间隔、开关等集中管理
- * 替换为真实 n8n 地址时，只需修改此文件
+ * 小红书和抖音的 n8n Webhook 地址相互独立，修改时请分别配置对应平台
  */
 
 const config = {
-  // ========== 接口地址 ==========
-  // 启动工作流
-  START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/start-workflow',
-  // 查询任务状态
-  STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/query-status',
-  // 用户操作回传（修改意见 / 确认继续）
-  USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/user-action',
+  // ========== 小红书接口地址（保持原有配置不变）==========
+  XIAOHONGSHU: {
+    // 启动工作流
+    START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/start-workflow',
+    // 查询任务状态（Mock 模式 / 轮询模式使用）
+    STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/query-status',
+    // 用户操作回传（修改意见 / 确认继续）
+    USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/user-action',
+  },
+
+  // ========== 抖音接口地址（填写抖音专属 n8n Webhook）==========
+  DOUYIN: {
+    // 启动工作流
+    START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/douyin-start-workflow',
+    // 查询任务状态（Mock 模式 / 轮询模式使用）
+    STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/douyin-query-status',
+    // 用户操作回传（修改意见 / 确认继续）
+    USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/douyin-user-action',
+  },
 
   // ========== 轮询配置 ==========
   // 轮询间隔（毫秒）
@@ -42,6 +54,20 @@ const config = {
 
   // 最大历史消息数
   MAX_HISTORY_MESSAGES: 100,
+
+  // ========== 任务历史配置 ==========
+  // 本地保存的最大任务记录数（超出后 FIFO 淘汰最旧的）
+  MAX_TASK_RECORDS: 50,
+}
+
+/**
+ * 根据平台获取对应的 n8n Webhook URL 配置
+ * @param {'xiaohongshu' | 'douyin'} platform
+ * @returns {{ START_WORKFLOW_URL: string, STATUS_QUERY_URL: string, USER_ACTION_URL: string }}
+ */
+export function getUrlsForPlatform(platform) {
+  if (platform === 'douyin') return config.DOUYIN
+  return config.XIAOHONGSHU
 }
 
 export default config
