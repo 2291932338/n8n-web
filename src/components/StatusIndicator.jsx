@@ -34,6 +34,24 @@ const statusConfig = {
     dot: 'bg-indigo-500 animate-pulse',
     label: '正在修改...',
   },
+  frame_review: {
+    color: 'text-violet-600 dark:text-violet-400',
+    bg: 'bg-violet-50 dark:bg-violet-900/20',
+    dot: 'bg-violet-500 animate-pulse-slow',
+    label: '分镜审核',
+  },
+  video_generating: {
+    color: 'text-cyan-600 dark:text-cyan-400',
+    bg: 'bg-cyan-50 dark:bg-cyan-900/20',
+    dot: 'bg-cyan-500 animate-pulse',
+    label: '视频生成中',
+  },
+  video_review: {
+    color: 'text-teal-600 dark:text-teal-400',
+    bg: 'bg-teal-50 dark:bg-teal-900/20',
+    dot: 'bg-teal-500 animate-pulse-slow',
+    label: '视频审核',
+  },
   completed: {
     color: 'text-green-600 dark:text-green-400',
     bg: 'bg-green-50 dark:bg-green-900/20',
@@ -52,10 +70,17 @@ const stepNames = {
   generating: '生成内容',
   draft: '初稿预览',
   image_preview: '配图预览',
+  image_regen: '重新生成配图',
   video_preview: '视频预览',
   revising: '修改优化',
   finalizing: '生成终稿',
   final: '最终版本',
+  // 抖音专属
+  douyin_draft: '分镜稿件',
+  douyin_frame_generating: '生成分镜图片',
+  douyin_frame_review: '分镜图片审核',
+  douyin_video_generating: '视频合成中',
+  douyin_video_review: '视频审核',
 }
 
 export default function StatusIndicator({ status, stepName, message }) {

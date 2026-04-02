@@ -17,7 +17,8 @@
       "Bash(claude:*)",
       "Bash(where claude:*)",
       "Bash(node --input-type=module --eval \"import config, { getUrlsForPlatform } from './src/config.js'; console.log\\('XHS:', getUrlsForPlatform\\('xiaohongshu'\\).START_WORKFLOW_URL\\); console.log\\('DY:', getUrlsForPlatform\\('douyin'\\).START_WORKFLOW_URL\\);\")",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(node:*)"
     ]
   }
 }

@@ -1,15 +1,23 @@
 /**
  * API 接口封装层
- * 同步模式：前端等待 n8n 返回完整结果，不再轮询
+ * 异步模式：startWorkflow 立即返回 taskId，前端轮询 STATUS_QUERY_URL 获取结果
+ * submitUserAction 同样立即返回，结果通过轮询获取
  */
 
 import config, { getUrlsForPlatform } from './config'
-import { mockStartWorkflow, mockQueryStatus, mockUserAction } from './mock'
+import {
+  mockStartWorkflow,
+  mockQueryStatus,
+  mockUserAction,
+  mockRegenerateImages,
+  mockFrameAction,
+  mockGenerateVideo,
+  mockRegenerateVideo,
+} from './mock'
 
 /**
- * 启动工作流（同步等待 AI 生成完成）
- * n8n 需要在 AI 生成完毕后再 Respond to Webhook
- * @returns {Promise<{success, taskId, status, preview, history, allowRevise, allowConfirm, message}>}
+ * 启动工作流（异步：n8n 立即返回 taskId，后台处理）
+ * @returns {Promise<{success, taskId, status, message}>}
  */
 export async function startWorkflow(platform, sessionId, params) {
   if (config.MOCK_ENABLED) {
@@ -28,12 +36,11 @@ export async function startWorkflow(platform, sessionId, params) {
   }
 
   const data = await res.json()
-  // n8n 可能返回数组，取第一个元素
   return Array.isArray(data) ? data[0] : data
 }
 
 /**
- * 查询任务状态（保留用于 Mock 模式）
+ * 查询任务状态（轮询使用）
  * @param {string} taskId
  * @param {'xiaohongshu' | 'douyin'} platform
  */
@@ -55,13 +62,13 @@ export async function queryStatus(taskId, platform) {
 }
 
 /**
- * 用户操作回传（同步等待 n8n 返回修改后的结果）
+ * 用户操作回传（异步：n8n 立即返回，结果通过轮询获取）
  * @param {string} taskId
- * @param {'revise' | 'confirm'} action
+ * @param {'revise' | 'confirm' | 'confirm_video'} action
  * @param {string} feedback
  * @param {string} previousText
  * @param {'xiaohongshu' | 'douyin'} platform
- * @returns {Promise<{success, status, message, preview?, history?}>}
+ * @returns {Promise<{success, status, message}>}
  */
 export async function submitUserAction(taskId, action, feedback = '', previousText = '', platform = 'xiaohongshu') {
   if (config.MOCK_ENABLED) {
@@ -84,11 +91,123 @@ export async function submitUserAction(taskId, action, feedback = '', previousTe
 }
 
 /**
- * 轮询状态管理器（仅 Mock 模式使用）
+ * 小红书：重新生成图片（文案已确认，只重新生成配图）
  * @param {string} taskId
- * @param {Function} onUpdate
- * @param {Function} onError
+ * @param {string} confirmedText  已确认的文案
+ * @param {'xiaohongshu'} platform
+ * @returns {Promise<{success, status, message}>}
+ */
+export async function regenerateImages(taskId, confirmedText, platform = 'xiaohongshu') {
+  if (config.MOCK_ENABLED) {
+    return mockRegenerateImages(taskId, confirmedText)
+  }
+
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.REGENERATE_IMAGE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, confirmedText }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`重新生成图片失败: ${res.status} ${res.statusText}`)
+  }
+
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * 抖音：单帧审核（通过/拒绝）
+ * @param {string} taskId
+ * @param {number} frameIndex   当前审核的帧索引（0-based）
+ * @param {'approve' | 'reject'} action
+ * @param {string} feedback     拒绝时填写的修改意见
+ * @param {'douyin'} platform
+ * @returns {Promise<{success, status, message}>}
+ */
+export async function submitFrameAction(taskId, frameIndex, action, feedback = '', platform = 'douyin') {
+  if (config.MOCK_ENABLED) {
+    return mockFrameAction(taskId, frameIndex, action, feedback)
+  }
+
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.FRAME_ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, frameIndex, action, feedback }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`帧审核提交失败: ${res.status} ${res.statusText}`)
+  }
+
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * 抖音：触发视频生成（所有帧审核通过后调用）
+ * @param {string} taskId
+ * @param {Array<{index, imageUrl, storyboardText}>} frames  所有已通过的帧
+ * @param {string} confirmedText  已确认的分镜稿件文本
+ * @param {'douyin'} platform
+ * @returns {Promise<{success, status, message}>}
+ */
+export async function generateVideo(taskId, frames, confirmedText, platform = 'douyin') {
+  if (config.MOCK_ENABLED) {
+    return mockGenerateVideo(taskId, frames, confirmedText)
+  }
+
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.GENERATE_VIDEO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, frames, confirmedText }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`触发视频生成失败: ${res.status} ${res.statusText}`)
+  }
+
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * 抖音：重新生成视频（不重走图片流程）
+ * @param {string} taskId
+ * @param {'douyin'} platform
+ * @returns {Promise<{success, status, message}>}
+ */
+export async function regenerateVideo(taskId, platform = 'douyin') {
+  if (config.MOCK_ENABLED) {
+    return mockRegenerateVideo(taskId)
+  }
+
+  const urls = getUrlsForPlatform(platform)
+  const res = await fetch(urls.REGENERATE_VIDEO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`重新生成视频失败: ${res.status} ${res.statusText}`)
+  }
+
+  const data = await res.json()
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * 轮询状态管理器
+ * 持续轮询直到任务进入终态（completed/failed）或达到超时
+ * @param {string} taskId
+ * @param {Function} onUpdate  每次轮询回调
+ * @param {Function} onError   错误/超时回调
  * @param {'xiaohongshu' | 'douyin'} platform
+ * @returns {Function}  stop 函数，调用后停止轮询
  */
 export function createStatusPoller(taskId, onUpdate, onError, platform = 'xiaohongshu') {
   let timer = null
@@ -109,12 +228,10 @@ export function createStatusPoller(taskId, onUpdate, onError, platform = 'xiaoho
 
       onUpdate(result)
 
-      if (result.status === 'processing' || result.status === 'waiting_user_feedback') {
-        const interval = result.status === 'waiting_user_feedback'
-          ? config.POLL_INTERVAL * 3
-          : config.POLL_INTERVAL
-        timer = setTimeout(poll, interval)
-      }
+      // 终态不再继续轮询
+      if (result.status === 'completed' || result.status === 'failed') return
+
+      timer = setTimeout(poll, config.POLL_INTERVAL)
     } catch (err) {
       if (!stopped) {
         onError(err)
@@ -132,4 +249,5 @@ export function createStatusPoller(taskId, onUpdate, onError, platform = 'xiaoho
     }
   }
 }
+
 

@@ -37,6 +37,11 @@ if [ -n "$XHS_USER_ACTION_URL" ]; then
   echo "$JS_FILES" | xargs sed -i \
     "s|https://your-n8n-domain.com/webhook/user-action|${XHS_USER_ACTION_URL}|g"
 fi
+# 小红书：重新生成图片（新增）
+if [ -n "$XHS_REGENERATE_IMAGE_URL" ]; then
+  echo "$JS_FILES" | xargs sed -i \
+    "s|https://your-n8n-domain.com/webhook/xhs-regenerate-image|${XHS_REGENERATE_IMAGE_URL}|g"
+fi
 
 # =============================================
 # 抖音接口（DOUYIN_*）
@@ -52,6 +57,21 @@ fi
 if [ -n "$DOUYIN_USER_ACTION_URL" ]; then
   echo "$JS_FILES" | xargs sed -i \
     "s|https://your-n8n-domain.com/webhook/douyin-user-action|${DOUYIN_USER_ACTION_URL}|g"
+fi
+# 抖音：单帧审核（新增）
+if [ -n "$DOUYIN_FRAME_ACTION_URL" ]; then
+  echo "$JS_FILES" | xargs sed -i \
+    "s|https://your-n8n-domain.com/webhook/douyin-frame-action|${DOUYIN_FRAME_ACTION_URL}|g"
+fi
+# 抖音：触发视频生成（新增）
+if [ -n "$DOUYIN_GENERATE_VIDEO_URL" ]; then
+  echo "$JS_FILES" | xargs sed -i \
+    "s|https://your-n8n-domain.com/webhook/douyin-generate-video|${DOUYIN_GENERATE_VIDEO_URL}|g"
+fi
+# 抖音：重新生成视频（新增）
+if [ -n "$DOUYIN_REGENERATE_VIDEO_URL" ]; then
+  echo "$JS_FILES" | xargs sed -i \
+    "s|https://your-n8n-domain.com/webhook/douyin-regenerate-video|${DOUYIN_REGENERATE_VIDEO_URL}|g"
 fi
 
 # =============================================

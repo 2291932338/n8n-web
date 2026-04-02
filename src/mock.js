@@ -1,7 +1,8 @@
 /**
  * Mock 服务
  * 在没有真实 n8n 接口时，模拟完整工作流流程
- * 流程：提交 -> 处理中 -> 返回初稿预览 -> 等待用户反馈 -> 用户修改/确认 -> 最终完成
+ * 支持：小红书全流程 + 重新生成图片
+ *       抖音全流程：草稿 → 逐帧审核 → 视频生成 → 视频审核
  */
 
 import config from './config'
@@ -189,9 +190,15 @@ export async function mockStartWorkflow(platform, sessionId, params) {
     platform,
     params,
     content,
-    phase: 0, // 0: processing, 1: draft ready, 2: revised/confirmed processing, 3: final
+    // 小红书阶段: 0=processing, 1=draft_ready, 2=revised/confirmed, 3=final, 4=image_regen
+    // 抖音阶段:   0=processing, 1=draft_ready, 2=revised/confirmed, 3=confirmed_text,
+    //             5=frame_generating, 6=all_frames_approved, 7=video_generating, 8=video_ready
+    phase: 0,
     pollCount: 0,
     reviseFeedback: null,
+    approvedFrames: [],
+    nextFrameIndex: 0,
+    videoSeed: 1,
     history: [
       {
         role: 'system',
@@ -374,30 +381,114 @@ export async function mockQueryStatus(taskId) {
     }
   }
 
-  // Phase 3: 已完成
+  // Phase 3: 已完成（小红书）
   if (task.phase === 3) {
     const finalPreview = task.platform === 'xiaohongshu'
-      ? {
-          text: task.content.finalText,
-          images: task.content.images,
-          videos: [],
-        }
-      : {
-          text: task.content.finalText,
-          images: task.content.images || [],
-          videos: task.content.video ? [task.content.video] : [],
-        }
+      ? { text: task.content.finalText, images: task.content.images, videos: [] }
+      : { text: task.content.finalText, images: task.content.images || [], videos: task.content.video ? [task.content.video] : [] }
 
     return {
-      success: true,
-      taskId,
-      status: 'completed',
-      stepName: 'final',
-      message: '内容生成完成！',
-      preview: finalPreview,
-      history: task.history,
-      allowRevise: false,
-      allowConfirm: false,
+      success: true, taskId, status: 'completed', stepName: 'final',
+      message: '内容生成完成！', preview: finalPreview,
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // Phase 4: 小红书重新生成图片
+  if (task.phase === 4) {
+    if (task.pollCount >= 2) {
+      task.phase = 3
+      task.pollCount = 0
+      const newImages = MOCK_IMAGES.map((url, i) => url.replace('xhs', `xhs_r${Date.now()}_${i}`))
+      task.content = { ...task.content, images: newImages }
+      const regen = { text: task.content.finalText, images: newImages, videos: [] }
+      return {
+        success: true, taskId, status: 'completed', stepName: 'final',
+        message: '图片重新生成完成！', preview: regen,
+        history: task.history, allowRevise: false, allowConfirm: false,
+      }
+    }
+    return {
+      success: true, taskId, status: 'processing', stepName: 'image_regen',
+      message: '正在重新生成图片...', preview: null,
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // ── 抖音专属阶段 ──────────────────────────────────────────────────────
+
+  // Phase 5: 生成单帧图片中
+  if (task.phase === 5) {
+    if (task.pollCount >= 2) {
+      const fi = task.nextFrameIndex || 0
+      if (!task.frames) task.frames = []
+      const existingIdx = task.frames.findIndex(f => f.index === fi)
+      const newFrame = {
+        index: fi,
+        imageUrl: MOCK_FRAME_IMAGES[fi % MOCK_FRAME_IMAGES.length],
+        storyboardText: `分镜 ${fi + 1}：${task.content.draftText.split('\n').filter(Boolean)[fi + 3] || '画面描述'}`,
+        status: 'reviewing',
+      }
+      if (existingIdx !== -1) {
+        task.frames[existingIdx] = newFrame
+      } else {
+        task.frames.push(newFrame)
+      }
+      task.phase = 5.5 // 帧已就绪，等待用户审核
+      task.pollCount = 0
+    }
+
+    return {
+      success: true, taskId, status: 'processing', stepName: 'douyin_frame_generating',
+      message: `正在生成第 ${(task.nextFrameIndex || 0) + 1} 帧图片...`,
+      frames: task.frames || [], currentFrameIndex: task.nextFrameIndex || 0,
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // Phase 5.5: 帧图片已生成，等待用户审核
+  if (task.phase === 5.5) {
+    return {
+      success: true, taskId, status: 'waiting_user_feedback', stepName: 'douyin_frame_review',
+      message: `第 ${(task.nextFrameIndex || 0) + 1} 帧已生成，请审核`,
+      frames: task.frames || [], currentFrameIndex: task.nextFrameIndex || 0,
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // Phase 6: 所有帧已通过，等待触发视频生成
+  if (task.phase === 6) {
+    return {
+      success: true, taskId, status: 'waiting_user_feedback', stepName: 'douyin_frame_review',
+      message: '所有分镜图片审核通过！可以开始生成视频。',
+      frames: task.frames || [], currentFrameIndex: -1,
+      allFramesApproved: true,
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // Phase 7: 视频生成中
+  if (task.phase === 7) {
+    if (task.pollCount >= 3) {
+      task.phase = 8
+      task.pollCount = 0
+    }
+    return {
+      success: true, taskId, status: 'processing', stepName: 'douyin_video_generating',
+      message: '正在合成视频，请稍候...', frames: task.frames || [],
+      history: task.history, allowRevise: false, allowConfirm: false,
+    }
+  }
+
+  // Phase 8: 视频就绪，等待审核
+  if (task.phase === 8) {
+    const videoUrl = `${MOCK_DOUYIN_VIDEO}?seed=${task.videoSeed}`
+    return {
+      success: true, taskId, status: 'waiting_user_feedback', stepName: 'douyin_video_review',
+      message: '视频已生成，请预览并确认。',
+      videoUrl, frames: task.frames || [],
+      preview: { text: task.content.finalText || task.content.draftText, images: [], videos: [videoUrl] },
+      history: task.history, allowRevise: false, allowConfirm: false,
     }
   }
 }
@@ -415,39 +506,111 @@ export async function mockUserAction(taskId, action, feedback) {
 
   if (action === 'revise') {
     task.reviseFeedback = feedback
-    task.history.push({
-      role: 'user',
-      type: 'text',
-      content: `📝 修改意见：${feedback}`,
-      timestamp: Date.now(),
-    })
-    task.history.push({
-      role: 'system',
-      type: 'status',
-      content: '🔄 已收到修改意见，正在重新生成...',
-      timestamp: Date.now(),
-    })
-  } else {
-    task.history.push({
-      role: 'user',
-      type: 'text',
-      content: '✅ 已确认，继续生成',
-      timestamp: Date.now(),
-    })
-    task.history.push({
-      role: 'system',
-      type: 'status',
-      content: '⏳ 确认成功，正在生成最终版本...',
-      timestamp: Date.now(),
-    })
+    task.history.push({ role: 'user', type: 'text', content: `📝 修改意见：${feedback}`, timestamp: Date.now() })
+    task.history.push({ role: 'system', type: 'status', content: '🔄 已收到修改意见，正在重新生成...', timestamp: Date.now() })
+    task.phase = 2
+    task.pollCount = 0
+  } else if (action === 'confirm') {
+    task.history.push({ role: 'user', type: 'text', content: '✅ 已确认，继续生成', timestamp: Date.now() })
+    if (task.platform === 'douyin') {
+      // 抖音：确认稿件后进入逐帧生成阶段
+      task.history.push({ role: 'system', type: 'status', content: '⏳ 确认成功，开始逐帧生成分镜图片...', timestamp: Date.now() })
+      task.phase = 5
+      task.nextFrameIndex = 0
+      task.approvedFrames = []
+      task.frames = []
+    } else {
+      task.history.push({ role: 'system', type: 'status', content: '⏳ 确认成功，正在生成最终版本...', timestamp: Date.now() })
+      task.phase = 2
+    }
+    task.pollCount = 0
+  } else if (action === 'confirm_video') {
+    // 抖音：确认视频，任务完成
+    task.history.push({ role: 'user', type: 'text', content: '✅ 视频已确认，任务完成', timestamp: Date.now() })
+    task.phase = 3
+    task.pollCount = 0
   }
-
-  task.phase = 2
-  task.pollCount = 0
 
   return {
     success: true,
     status: 'processing',
-    message: action === 'revise' ? '修改意见已接收，正在重新生成' : '确认成功，正在生成最终版本',
+    message: action === 'revise' ? '修改意见已接收，正在重新生成' : action === 'confirm_video' ? '任务已完成！' : '确认成功，正在生成最终版本',
   }
+}
+// 以下为新增 mock 函数
+// =====================================================================
+
+// 抖音分镜图片（每帧一张，与主稿件分镜对应）
+const MOCK_FRAME_IMAGES = [
+  'https://picsum.photos/seed/frame1/800/450',
+  'https://picsum.photos/seed/frame2/800/450',
+  'https://picsum.photos/seed/frame3/800/450',
+  'https://picsum.photos/seed/frame4/800/450',
+]
+
+const MOCK_DOUYIN_VIDEO = 'https://www.w3schools.com/html/mov_bbb.mp4'
+
+/**
+ * Mock: 小红书重新生成图片
+ */
+export async function mockRegenerateImages(taskId, confirmedText) {
+  await delay(config.MOCK_DELAYS.userAction)
+  const task = mockTasks[taskId]
+  if (!task) return { success: false, status: 'failed', message: '任务不存在' }
+  task.phase = 4
+  task.pollCount = 0
+  return { success: true, status: 'processing', message: '正在重新生成图片...' }
+}
+
+/**
+ * Mock: 抖音单帧审核（approve / reject）
+ */
+export async function mockFrameAction(taskId, frameIndex, action, feedback) {
+  await delay(config.MOCK_DELAYS.userAction)
+  const task = mockTasks[taskId]
+  if (!task) return { success: false, status: 'failed', message: '任务不存在' }
+
+  if (action === 'approve') {
+    if (!task.approvedFrames) task.approvedFrames = []
+    if (!task.approvedFrames.includes(frameIndex)) task.approvedFrames.push(frameIndex)
+    const totalFrames = MOCK_FRAME_IMAGES.length
+    if (task.approvedFrames.length >= totalFrames) {
+      task.phase = 6 // all_frames_approved
+    } else {
+      task.phase = 5 // next_frame_generating
+      task.nextFrameIndex = frameIndex + 1
+    }
+  } else {
+    task.phase = 5
+    task.nextFrameIndex = frameIndex
+    task.rejectFeedback = feedback
+  }
+
+  task.pollCount = 0
+  return { success: true, status: 'processing', message: action === 'approve' ? '已通过，生成下一帧...' : '已拒绝，重新生成该帧...' }
+}
+
+/**
+ * Mock: 抖音触发视频生成
+ */
+export async function mockGenerateVideo(taskId, frames, confirmedText) {
+  await delay(config.MOCK_DELAYS.userAction)
+  const task = mockTasks[taskId]
+  if (!task) return { success: false, status: 'failed', message: '任务不存在' }
+  task.phase = 7
+  task.pollCount = 0
+  return { success: true, status: 'processing', message: '正在生成视频，请稍候...' }
+}
+
+/**
+ * Mock: 抖音重新生成视频
+ */
+export async function mockRegenerateVideo(taskId) {
+  await delay(config.MOCK_DELAYS.userAction)
+  const task = mockTasks[taskId]
+  if (!task) return { success: false, status: 'failed', message: '任务不存在' }
+  task.phase = 7
+  task.pollCount = 0
+  task.videoSeed = Date.now()
+  return { success: true, status: 'processing', message: '正在重新生成视频...' }
 }

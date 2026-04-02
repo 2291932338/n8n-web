@@ -9,20 +9,28 @@ const config = {
   XIAOHONGSHU: {
     // 启动工作流
     START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/start-workflow',
-    // 查询任务状态（Mock 模式 / 轮询模式使用）
+    // 查询任务状态（异步轮询）
     STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/query-status',
     // 用户操作回传（修改意见 / 确认继续）
     USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/user-action',
+    // 重新生成图片（文案已确认，只重新生成配图）
+    REGENERATE_IMAGE_URL: 'https://your-n8n-domain.com/webhook/xhs-regenerate-image',
   },
 
   // ========== 抖音接口地址（填写抖音专属 n8n Webhook）==========
   DOUYIN: {
     // 启动工作流
     START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/douyin-start-workflow',
-    // 查询任务状态（Mock 模式 / 轮询模式使用）
+    // 查询任务状态（异步轮询）
     STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/douyin-query-status',
-    // 用户操作回传（修改意见 / 确认继续）
+    // 用户操作回传（分镜稿件修改意见 / 确认稿件）
     USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/douyin-user-action',
+    // 单帧审核（approve / reject + 意见）
+    FRAME_ACTION_URL: 'https://your-n8n-domain.com/webhook/douyin-frame-action',
+    // 触发视频生成（所有帧审核通过后调用）
+    GENERATE_VIDEO_URL: 'https://your-n8n-domain.com/webhook/douyin-generate-video',
+    // 重新生成视频（不重走图片流程）
+    REGENERATE_VIDEO_URL: 'https://your-n8n-domain.com/webhook/douyin-regenerate-video',
   },
 
   // ========== 轮询配置 ==========
@@ -63,7 +71,6 @@ const config = {
 /**
  * 根据平台获取对应的 n8n Webhook URL 配置
  * @param {'xiaohongshu' | 'douyin'} platform
- * @returns {{ START_WORKFLOW_URL: string, STATUS_QUERY_URL: string, USER_ACTION_URL: string }}
  */
 export function getUrlsForPlatform(platform) {
   if (platform === 'douyin') return config.DOUYIN
