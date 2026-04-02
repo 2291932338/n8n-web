@@ -44,8 +44,33 @@ const INITIAL_STATE = {
   videoUrl: null,
 }
 
-export function useTask(onTaskSaved) {
-  const [state, setState] = useState(INITIAL_STATE)
+const TERMINAL_STATUSES = new Set(['completed', 'failed'])
+
+/**
+ * 从持久化的任务记录恢复初始状态
+ * taskStore 中保存的 status 字段对应 taskStatus
+ */
+function hydrateFromRecord(record) {
+  if (!record) return INITIAL_STATE
+  return {
+    ...INITIAL_STATE,
+    taskId: record.taskId,
+    platform: record.platform || 'xiaohongshu',
+    formParams: record.formParams || null,
+    taskStatus: record.status || 'idle',
+    stepName: record.stepName || '',
+    statusMessage: record.statusMessage || '',
+    preview: record.preview || null,
+    previewHistory: record.previewHistory || [],
+    errorMessage: record.errorMessage || '',
+    createdAt: record.createdAt || null,
+    frames: record.frames || [],
+    videoUrl: record.videoUrl || null,
+  }
+}
+
+export function useTask(onTaskSaved, initialTaskRecord = null) {
+  const [state, setState] = useState(() => hydrateFromRecord(initialTaskRecord))
 
   // 用 ref 追踪最新 state，供闭包内异步回调使用
   const stateRef = useRef(state)
@@ -167,6 +192,15 @@ export function useTask(onTaskSaved) {
 
   // 组件卸载时停止轮询
   useEffect(() => () => stopPolling(), [stopPolling])
+
+  // 恢复已有任务：若从 initialTaskRecord 恢复且任务未终止，自动重启轮询
+  useEffect(() => {
+    if (!initialTaskRecord) return
+    const { taskId, platform, status } = initialTaskRecord
+    if (!taskId || TERMINAL_STATUSES.has(status)) return
+    startPolling(taskId, platform || 'xiaohongshu')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // 仅 mount 时执行一次
 
   // ── 提交表单 ───────────────────────────────────────────────
   const submit = useCallback(async (platform, formData) => {

@@ -5,39 +5,30 @@
  */
 
 import { useState, useCallback } from 'react'
-import { getAllTasks, deleteTask, clearAllTasks } from '../taskStore'
+import { getAllTasks, deleteTask, clearAllTasks, getTask } from '../taskStore'
 
-/**
- * 返回任务管理器和当前活跃任务的 key（用于 App 层创建 useTask 实例）
- *
- * 设计说明：
- * React 不支持动态数量的 hooks，因此我们不能为每个任务动态创建 useTask。
- * 解决方案：App 层只维护"当前显示任务"的单个 useTask 实例，
- * 通过改变 key prop 来强制重建（类似 React key 重置技巧）。
- * 后台任务的状态通过 taskStore（localStorage）持久化，
- * 历史任务列表从 taskStore 读取展示。
- *
- * @returns {{
- *   taskRecords: Array,
- *   activeTaskKey: string,
- *   refreshTaskRecords: Function,
- *   selectTask: Function,  // 切换到历史任务（只读查看）
- *   deleteTaskRecord: Function,
- *   clearTaskRecords: Function,
- *   newTask: Function,     // 开启新任务（重置 activeTaskKey）
- * }}
- */
 export function useTaskManager() {
   const [taskRecords, setTaskRecords] = useState(() => getAllTasks())
   // key 变化时 App 层的 useTask 实例会重建
   const [activeTaskKey, setActiveTaskKey] = useState('task_0')
+  // 切换到已有任务时，传给 useTask 用于恢复状态
+  const [selectedTaskRecord, setSelectedTaskRecord] = useState(null)
 
   const refreshTaskRecords = useCallback(() => {
     setTaskRecords(getAllTasks())
   }, [])
 
   const newTask = useCallback(() => {
+    setSelectedTaskRecord(null)
     setActiveTaskKey(`task_${Date.now()}`)
+  }, [])
+
+  // 切换到已有任务（恢复状态并重启轮询）
+  const selectTask = useCallback((taskId) => {
+    const record = getTask(taskId)
+    if (!record) return
+    setSelectedTaskRecord(record)
+    setActiveTaskKey(`task_${taskId}_${Date.now()}`)
   }, [])
 
   const deleteTaskRecord = useCallback((taskId) => {
@@ -53,8 +44,10 @@ export function useTaskManager() {
   return {
     taskRecords,
     activeTaskKey,
+    selectedTaskRecord,
     refreshTaskRecords,
     newTask,
+    selectTask,
     deleteTaskRecord,
     clearTaskRecords,
   }

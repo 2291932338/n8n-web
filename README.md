@@ -5,68 +5,78 @@
 ## 目录
 
 1. [项目概述](#1-项目概述)
-2. [架构说明](#2-架构说明)
-3. [n8n 工作流对接指南](#3-n8n-工作流对接指南)
-4. [Docker 部署](#4-docker-部署)
-5. [GitHub 发布与服务器部署](#5-github-发布与服务器部署)
-6. [常见问题](#6-常见问题)
+2. [异步通信架构](#2-异步通信架构)
+3. [小红书 Webhook 对接](#3-小红书-webhook-对接)
+4. [抖音 Webhook 对接](#4-抖音-webhook-对接)
+5. [通用字段参考](#5-通用字段参考)
+6. [Docker 部署](#6-docker-部署)
+7. [CORS 跨域配置](#7-cors-跨域配置)
+8. [常见问题](#8-常见问题)
 
 ---
 
 ## 1. 项目概述
 
-WorkflowStudio 是一个 **AI 内容生成工作台**，支持小红书图文和抖音短视频脚本的自动化生成。前端通过 3 个 Webhook 接口与 n8n 后端通信，实现：
+WorkflowStudio 是一个 **AI 内容生成工作台**，支持：
 
-- 提交生成任务 → AI 处理 → 返回初稿 → 用户反馈/修改 → 生成终稿
+- **小红书**：图文文案生成 → 用户确认/修改 → 重新生成图片
+- **抖音**：分镜脚本生成 → 逐帧图片审核 → 视频合成 → 视频审核
+
+两个平台的 n8n Webhook **完全独立**，互不干扰。前端使用异步轮询模式，所有接口立即返回，结果通过 `STATUS_QUERY_URL` 轮询获取。
 
 ### 技术栈
 
-| 层级    | 技术                          |
-|---------|-------------------------------|
-| 前端    | React 18 + Vite + Tailwind CSS |
-| 后端    | n8n 工作流自动化               |
-| 部署    | Docker (Nginx) + GitHub Actions |
+| 层级 | 技术 |
+|------|------|
+| 前端 | React 18 + Vite + Tailwind CSS |
+| 后端 | n8n 工作流自动化 |
+| 部署 | Docker (Nginx) + GitHub Actions |
 
 ---
 
-## 2. 架构说明
+## 2. 异步通信架构
+
+**所有接口均为"触发即返回"模式**：前端调用接口后，n8n 立即返回确认（不等待 AI 处理完成），前端随后通过轮询 `STATUS_QUERY_URL` 获取最新状态。
 
 ```
-┌─────────────────┐         ┌─────────────────────────────┐
-│  WorkflowStudio │         │          n8n 后端             │
-│   (前端 SPA)     │         │                             │
-│                 │  POST   │  /webhook/start-workflow     │
-│  提交表单 ──────┼────────→│  → 接收参数                  │
-│                 │         │  → 调用 AI (GPT/Claude)      │
-│                 │  GET    │  → 生成初稿                  │
-│  轮询状态 ──────┼────────→│  /webhook/query-status       │
-│                 │         │  → 返回进度/预览内容          │
-│                 │  POST   │                             │
-│  修改/确认 ─────┼────────→│  /webhook/user-action        │
-│                 │         │  → 处理反馈                  │
-│                 │         │  → 生成终稿                  │
-└─────────────────┘         └─────────────────────────────┘
+前端                              n8n
+ │                                 │
+ │── POST start-workflow ─────────→│ 立即返回 { taskId }
+ │                                 │（后台开始 AI 处理）
+ │── GET  query-status?taskId ────→│ 返回 { status: "processing" }
+ │── GET  query-status?taskId ────→│ 返回 { status: "processing" }
+ │── GET  query-status?taskId ────→│ 返回 { status: "waiting_user_feedback", preview: {...} }
+ │                                 │
+ │── POST user-action (confirm) ──→│ 立即返回 { success: true }
+ │                                 │（后台继续处理）
+ │── GET  query-status?taskId ────→│ 返回 { status: "completed", preview: {...} }
 ```
 
----
-
-## 3. n8n 工作流对接指南
-
-### 3.1 需要创建的 3 个 Webhook
-
-在 n8n 中需要创建 **3 个独立的 Workflow**，每个对应一个 Webhook 端点：
+**轮询规则**：
+- 间隔：每 **3 秒** 一次
+- 超时：**5 分钟**后停止并提示用户
+- 终态：`completed` 或 `failed` 时停止轮询
 
 ---
 
-### Webhook 1: 启动工作流 (`/webhook/start-workflow`)
+## 3. 小红书 Webhook 对接
 
-**触发方式**: Webhook (POST)
+小红书流程：`提交` → `AI处理` → `待确认` → `确认/修改` → `完成` → （可选）`重新生成图片`
 
-**前端发送的请求体**:
+需要在 n8n 中创建 **4 个 Workflow**：
+
+---
+
+### 3.1 启动工作流
+
+**方法**: `POST`  
+**默认路径**: `/webhook/start-workflow`
+
+**前端请求体**:
 ```json
 {
-  "platform": "xiaohongshu",        // "xiaohongshu" 或 "douyin"
-  "sessionId": "uuid-xxx-xxx",      // 前端唯一会话ID
+  "platform": "xiaohongshu",
+  "sessionId": "uuid-v4-字符串",
   "params": {
     "主题/产品": "夏季防晒霜",
     "目标人群": "25-35岁都市女性",
@@ -83,363 +93,727 @@ WorkflowStudio 是一个 **AI 内容生成工作台**，支持小红书图文和
 }
 ```
 
-**小红书平台 (`xiaohongshu`) 的 `params` 字段**:
+**params 字段说明**:
 
-| 字段名       | 类型   | 必填 | 说明                                       |
-|-------------|--------|------|--------------------------------------------|
-| 主题/产品    | string | 是   | 生成内容的主题                               |
-| 目标人群     | string | 是   | 目标受众描述                                 |
-| 文案风格     | string | 是   | 种草分享/干货教程/真实测评/情感共鸣/对比评测/开箱体验/日常分享/攻略指南 |
-| 核心卖点     | string | 是   | 产品亮点，多条用换行分隔                       |
-| 发布目的     | string | 否   | 品牌种草/产品推广/涨粉引流/分享记录/知识科普/活动宣传 |
-| 字数范围     | string | 否   | 100-200字 / 200-300字 / 300-500字 / 500-800字 / 800字以上 |
-| 图片张数     | string | 否   | 1/2/3/4/6/9                                |
-| 图片风格     | string | 否   | 清新自然/高级质感/可爱少女/简约大气/复古文艺/科技感/INS风/日系 |
-| 标题风格     | string | 否   | 疑问式/数字式/感叹式/对比式/悬念式/痛点式       |
-| 标签/关键词   | string | 否   | 逗号分隔的标签                               |
-| 补充说明     | string | 否   | 额外注意事项                                 |
+| 字段名 | 必填 | 可选值 |
+|--------|------|--------|
+| 主题/产品 | 是 | 自由文本 |
+| 目标人群 | 是 | 自由文本 |
+| 文案风格 | 是 | 种草分享/干货教程/真实测评/情感共鸣/对比评测/开箱体验/日常分享/攻略指南 |
+| 核心卖点 | 是 | 自由文本，多条换行分隔 |
+| 发布目的 | 否 | 品牌种草/产品推广/涨粉引流/分享记录/知识科普/活动宣传 |
+| 字数范围 | 否 | 100-200字/200-300字/300-500字/500-800字/800字以上 |
+| 图片张数 | 否 | 1/2/3/4/6/9 |
+| 图片风格 | 否 | 清新自然/高级质感/可爱少女/简约大气/复古文艺/科技感/INS风/日系 |
+| 标题风格 | 否 | 疑问式/数字式/感叹式/对比式/悬念式/痛点式 |
+| 标签/关键词 | 否 | 逗号分隔 |
+| 补充说明 | 否 | 自由文本 |
 
-**抖音平台 (`douyin`) 的 `params` 字段**:
-
-| 字段名                  | 类型   | 必填 | 说明                                      |
-|------------------------|--------|------|-------------------------------------------|
-| 主题/产品               | string | 是   | 生成内容的主题                              |
-| 目标人群                | string | 是   | 目标受众描述                                |
-| 视频时长                | string | 是   | 15秒/30秒/60秒/3分钟/5分钟                  |
-| 脚本风格                | string | 是   | 轻松搞笑/专业讲解/情感故事/快节奏种草/沉浸式体验/对比测评/街头采访 |
-| 视频类型（口播/混剪/剧情）| string | 是   | 口播/混剪/剧情/实拍/动画                     |
-| 分镜数量                | string | 否   | 3-4个/4-6个/6-8个/8个以上                   |
-| 核心卖点                | string | 是   | 产品亮点，多条用换行分隔                       |
-| 画面风格                | string | 否   | 明亮清新/暗调质感/电影感/日系温暖/赛博朋克/极简白/复古滤镜 |
-| BGM 风格               | string | 否   | 轻快活泼/热血激昂/治愈温馨/电子音乐/古风国潮/流行说唱/纯音乐 |
-| CTA/行动引导            | string | 否   | 引导行动的文案                              |
-| 补充说明                | string | 否   | 额外注意事项                                |
-
-**n8n 需要返回的响应**:
+**n8n 需要立即返回**:
 ```json
 {
   "success": true,
-  "taskId": "task_1234567890_abc123",    // n8n 生成的唯一任务 ID
-  "status": "processing",               // 固定值
+  "taskId": "xhs_1234567890_abc",
+  "status": "processing",
   "message": "工作流已启动，正在生成内容..."
 }
 ```
 
-**n8n 工作流设计建议**:
-
-```
-Webhook (接收) → Function (生成taskId，存入数据库/变量) →
-  └→ IF (platform = xiaohongshu)
-       └→ AI Agent (小红书文案生成 Prompt)
-       └→ AI Image Generation (可选)
-  └→ IF (platform = douyin)
-       └→ AI Agent (抖音脚本生成 Prompt)
-  → 将结果存储 (数据库/Redis/内存)
-  → Respond to Webhook (返回 taskId)
-```
+> n8n 返回后，在后台继续调用 AI 生成文案，生成完成后将结果和 `status="waiting_user_feedback"` 写入数据库。
 
 ---
 
-### Webhook 2: 查询状态 (`/webhook/query-status`)
+### 3.2 查询状态
 
-**触发方式**: Webhook (GET)
+**方法**: `GET`  
+**默认路径**: `/webhook/query-status`  
+**前端请求**: `GET /webhook/query-status?taskId=xhs_1234567890_abc`
 
-**前端请求**: `GET /webhook/query-status?taskId=task_1234567890_abc123`
-
-**n8n 需要返回的响应** (根据不同阶段):
-
-#### 阶段 A: 处理中
+**处理中时返回**:
 ```json
 {
   "success": true,
-  "taskId": "task_1234567890_abc123",
+  "taskId": "xhs_1234567890_abc",
   "status": "processing",
   "stepName": "generating",
-  "message": "正在调用 AI 模型生成内容...",
+  "message": "正在调用 AI 生成文案...",
   "preview": null,
-  "history": [
-    {
-      "role": "system",
-      "type": "status",
-      "content": "✅ 工作流已启动\n平台：小红书",
-      "timestamp": 1700000000000
-    }
-  ],
+  "history": [],
   "allowRevise": false,
   "allowConfirm": false
 }
 ```
 
-#### 阶段 B: 初稿完成，等待用户反馈
+**初稿完成、等待确认时返回**:
 ```json
 {
   "success": true,
-  "taskId": "task_1234567890_abc123",
+  "taskId": "xhs_1234567890_abc",
   "status": "waiting_user_feedback",
   "stepName": "draft",
-  "message": "初稿已生成，请预览并确认或提出修改意见",
+  "message": "初稿已生成，请确认或提出修改意见",
   "preview": {
-    "text": "✨ 夏季防晒霜 | 用了一个月的真实感受 ✨\n\n姐妹们...(文案内容)",
+    "text": "✨ 夏日防晒必备 | 真实用后分享 ✨\n\n...(文案全文)",
     "images": [
-      "https://your-domain.com/generated/img1.jpg",
-      "https://your-domain.com/generated/img2.jpg"
+      "https://your-cdn.com/img1.jpg",
+      "https://your-cdn.com/img2.jpg"
     ],
     "videos": []
   },
   "history": [
     { "role": "system", "type": "status", "content": "✅ 工作流已启动", "timestamp": 1700000000000 },
-    { "role": "system", "type": "status", "content": "📝 AI 正在生成初稿内容...", "timestamp": 1700000003000 },
-    { "role": "system", "type": "preview", "content": "{...preview JSON...}", "timestamp": 1700000006000 }
+    { "role": "system", "type": "status", "content": "📝 AI 正在生成文案...", "timestamp": 1700000003000 }
   ],
   "allowRevise": true,
   "allowConfirm": true
 }
 ```
 
-#### 阶段 C: 最终完成
+**最终完成时返回**:
 ```json
 {
   "success": true,
-  "taskId": "task_1234567890_abc123",
+  "taskId": "xhs_1234567890_abc",
   "status": "completed",
   "stepName": "final",
-  "message": "内容生成完成！可以复制或下载。",
+  "message": "内容生成完成！",
   "preview": {
-    "text": "✨ 最终版文案内容 ✨\n...",
-    "images": ["https://..."],
+    "text": "✨ 最终版文案 ✨\n...",
+    "images": ["https://your-cdn.com/final1.jpg"],
     "videos": []
   },
-  "history": [...],
   "allowRevise": false,
   "allowConfirm": false
 }
 ```
 
-**关键字段说明**:
-
-| 字段           | 类型     | 说明                                                                 |
-|---------------|----------|----------------------------------------------------------------------|
-| `status`      | string   | `processing` / `waiting_user_feedback` / `completed` / `failed`     |
-| `stepName`    | string   | `generating` / `draft` / `revising` / `finalizing` / `final`       |
-| `preview`     | object   | 包含 `text`(文案), `images`(图片URL数组), `videos`(视频URL数组)       |
-| `history`     | array    | 消息历史，每条包含 `role`, `type`, `content`, `timestamp`             |
-| `allowRevise` | boolean  | 是否显示"提交修改意见"按钮                                             |
-| `allowConfirm`| boolean  | 是否显示"确认"按钮                                                    |
-
-**前端轮询机制**:
-- `processing` 状态下：每 **3 秒** 轮询一次
-- `waiting_user_feedback` 状态下：每 **9 秒** 轮询一次
-- `completed` 或 `failed` 状态下：停止轮询
-- 总超时：**5 分钟**（300 秒）
+**失败时返回**:
+```json
+{
+  "success": false,
+  "taskId": "xhs_1234567890_abc",
+  "status": "failed",
+  "message": "AI 调用失败，请重试"
+}
+```
 
 ---
 
-### Webhook 3: 用户操作 (`/webhook/user-action`)
+### 3.3 用户操作（确认/修改）
 
-**触发方式**: Webhook (POST)
+**方法**: `POST`  
+**默认路径**: `/webhook/user-action`
 
-**前端发送的请求体**:
-
-修改意见：
+**提交修改意见**:
 ```json
 {
-  "taskId": "task_1234567890_abc123",
+  "taskId": "xhs_1234567890_abc",
   "action": "revise",
-  "feedback": "标题改为数字式，增加更多emoji，文案更活泼一些"
+  "feedback": "标题改为数字式，增加更多emoji，文案更活泼",
+  "previousText": "（第一次修改时携带初稿文案，之后修改此字段为空字符串）"
 }
 ```
 
-确认继续：
+> `previousText` 字段说明：首次调用 `revise` 时前端会携带当前预览文案，供 n8n 中的 AI 参考原稿进行修改；第二次及以后修改时此字段为空字符串 `""`，n8n 可直接从数据库读取最新版本。
+
+**确认稿件**:
 ```json
 {
-  "taskId": "task_1234567890_abc123",
+  "taskId": "xhs_1234567890_abc",
   "action": "confirm",
-  "feedback": ""
+  "feedback": "",
+  "previousText": "（已确认的文案全文，供后续生成图片使用）"
 }
 ```
 
-**n8n 需要返回的响应**:
+**n8n 立即返回**:
 ```json
 {
   "success": true,
   "status": "processing",
-  "message": "修改意见已接收，正在重新生成"
+  "message": "修改意见已接收，正在重新生成..."
 }
 ```
 
-**n8n 工作流设计建议**:
-```
-Webhook (接收) → IF (action = "revise")
-  └→ 是：将 feedback 传给 AI → 重新生成 → 更新任务状态
-  └→ 否(confirm)：基于初稿生成最终版 → 更新任务状态
-→ Respond to Webhook
-```
-
 ---
 
-### 3.2 n8n 完整工作流设计
+### 3.4 重新生成图片（仅小红书）
 
-推荐使用数据库（如 PostgreSQL/MySQL）或 Redis 来存储任务状态。以下是推荐架构：
+文案已确认后，用户可点击"重新生成图片"触发此接口，**不重新生成文案**。
 
-#### 工作流 A: Start Workflow
+**方法**: `POST`  
+**默认路径**: `/webhook/xhs-regenerate-image`
 
-```
-[Webhook: POST /webhook/start-workflow]
-    │
-    ▼
-[Function: 生成 taskId]
-    │ taskId = "task_" + Date.now() + "_" + randomString
-    │ 将 taskId + params 存入数据库，status = "processing"
-    ▼
-[Respond to Webhook: 返回 { success, taskId, status }]
-    │
-    ▼
-[Wait: 1秒] (让前端先收到响应)
-    │
-    ▼
-[IF: platform === "xiaohongshu"]
-    ├─ 是 → [OpenAI/Claude Node: 小红书文案 Prompt]
-    │        │
-    │        ▼
-    │       [OpenAI/Stable Diffusion: 生成图片] (可选)
-    │        │
-    │        ▼
-    │       [Function: 更新数据库 status="waiting_user_feedback"]
-    │
-    └─ 否 → [OpenAI/Claude Node: 抖音脚本 Prompt]
-             │
-             ▼
-            [Function: 更新数据库 status="waiting_user_feedback"]
-```
-
-#### 工作流 B: Query Status
-
-```
-[Webhook: GET /webhook/query-status]
-    │ 参数: taskId
-    ▼
-[Database: 查询 taskId 的当前状态]
-    │
-    ▼
-[Function: 组装响应数据]
-    │ 根据 status 决定返回内容
-    │ 包含 preview, history, allowRevise, allowConfirm
-    ▼
-[Respond to Webhook: 返回完整状态]
-```
-
-#### 工作流 C: User Action
-
-```
-[Webhook: POST /webhook/user-action]
-    │ 参数: taskId, action, feedback
-    ▼
-[Database: 更新 status = "processing"]
-    │
-    ▼
-[Respond to Webhook: 返回确认]
-    │
-    ▼
-[IF: action === "revise"]
-    ├─ 是 → [Function: 组装修改 Prompt (原稿 + feedback)]
-    │        │
-    │        ▼
-    │       [AI Node: 根据修改意见重新生成]
-    │        │
-    │        ▼
-    │       [Database: 更新 status="completed", 存储终稿]
-    │
-    └─ 否 → [AI Node: 基于初稿生成终稿]
-             │
-             ▼
-            [Database: 更新 status="completed", 存储终稿]
-```
-
----
-
-### 3.3 AI Prompt 示例
-
-#### 小红书文案 Prompt
-
-```
-你是一位专业的小红书文案创作者。请根据以下信息生成一篇小红书笔记：
-
-主题/产品：{{$json.params["主题/产品"]}}
-目标人群：{{$json.params["目标人群"]}}
-文案风格：{{$json.params["文案风格"]}}
-核心卖点：{{$json.params["核心卖点"]}}
-字数范围：{{$json.params["字数范围"]}}
-标题风格：{{$json.params["标题风格"]}}
-
-要求：
-1. 标题要吸引眼球，使用指定的标题风格
-2. 文案要符合小红书平台调性
-3. 适当使用emoji增强可读性
-4. 在文末添加相关话题标签
-5. 控制在指定字数范围内
-```
-
-#### 抖音脚本 Prompt
-
-```
-你是一位专业的短视频编导。请根据以下信息生成一份抖音短视频脚本：
-
-主题/产品：{{$json.params["主题/产品"]}}
-目标人群：{{$json.params["目标人群"]}}
-视频时长：{{$json.params["视频时长"]}}
-脚本风格：{{$json.params["脚本风格"]}}
-视频类型：{{$json.params["视频类型（口播 / 混剪 / 剧情）"]}}
-分镜数量：{{$json.params["分镜数量"]}}
-核心卖点：{{$json.params["核心卖点"]}}
-画面风格：{{$json.params["画面风格"]}}
-BGM风格：{{$json.params["BGM 风格"]}}
-CTA引导：{{$json.params["CTA/行动引导"]}}
-
-要求：
-1. 按分镜格式输出，每个分镜包含：时间段、画面描述、台词/旁白、BGM/音效、转场方式
-2. 开场3秒必须有强吸引力的hook
-3. 结尾有明确的CTA行动引导
-4. 符合指定的脚本风格和时长要求
-```
-
----
-
-### 3.4 前端配置切换
-
-修改 `src/config.js`，将 Mock 模式关闭并填入真实地址：
-
-```javascript
-const config = {
-  // 替换为你的 n8n 地址
-  START_WORKFLOW_URL: 'https://your-n8n.example.com/webhook/start-workflow',
-  STATUS_QUERY_URL: 'https://your-n8n.example.com/webhook/query-status',
-  USER_ACTION_URL: 'https://your-n8n.example.com/webhook/user-action',
-
-  POLL_INTERVAL: 3000,
-  POLL_TIMEOUT: 300000,
-
-  // 关闭 Mock 模式
-  MOCK_ENABLED: false,
-
-  // ...其他配置不变
+**前端请求体**:
+```json
+{
+  "taskId": "xhs_1234567890_abc",
+  "confirmedText": "已确认的文案全文，供图片生成参考"
 }
 ```
 
-### 3.5 CORS 跨域配置
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "status": "processing",
+  "message": "正在重新生成图片..."
+}
+```
 
-在 n8n 中需要确保 Webhook 允许跨域请求。有两种方式：
+> n8n 后台调用图片生成 API，完成后将新图片 URL 更新到数据库，`status` 改回 `completed`。前端通过轮询获取新图片。
 
-**方式 A: n8n 环境变量 (推荐)**
+---
+
+## 4. 抖音 Webhook 对接
+
+抖音流程：`提交` → `AI处理` → `稿件待确认` → `逐帧图片生成` → `逐帧审核` → `触发视频生成` → `视频审核` → `完成`
+
+需要在 n8n 中创建 **6 个 Workflow**：
+
+---
+
+### 4.1 启动工作流
+
+**方法**: `POST`  
+**默认路径**: `/webhook/douyin-start-workflow`
+
+**前端请求体**:
+```json
+{
+  "platform": "douyin",
+  "sessionId": "uuid-v4-字符串",
+  "params": {
+    "主题/产品": "智能手表",
+    "目标人群": "18-30岁科技爱好者",
+    "视频时长": "60秒",
+    "脚本风格": "专业讲解",
+    "视频类型（口播/混剪/剧情）": "口播",
+    "分镜数量": "4-6个",
+    "核心卖点": "续航7天\n心率监测\n防水50米",
+    "画面风格": "明亮清新",
+    "BGM 风格": "轻快活泼",
+    "CTA/行动引导": "点击购物车即可购买",
+    "补充说明": ""
+  }
+}
+```
+
+**params 字段说明**:
+
+| 字段名 | 必填 | 可选值 |
+|--------|------|--------|
+| 主题/产品 | 是 | 自由文本 |
+| 目标人群 | 是 | 自由文本 |
+| 视频时长 | 是 | 15秒/30秒/60秒/3分钟/5分钟 |
+| 脚本风格 | 是 | 轻松搞笑/专业讲解/情感故事/快节奏种草/沉浸式体验/对比测评/街头采访 |
+| 视频类型（口播/混剪/剧情）| 是 | 口播/混剪/剧情/实拍/动画 |
+| 分镜数量 | 否 | 3-4个/4-6个/6-8个/8个以上 |
+| 核心卖点 | 是 | 自由文本，多条换行分隔 |
+| 画面风格 | 否 | 明亮清新/暗调质感/电影感/日系温暖/赛博朋克/极简白/复古滤镜 |
+| BGM 风格 | 否 | 轻快活泼/热血激昂/治愈温馨/电子音乐/古风国潮/流行说唱/纯音乐 |
+| CTA/行动引导 | 否 | 自由文本 |
+| 补充说明 | 否 | 自由文本 |
+
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "message": "工作流已启动，正在生成分镜脚本..."
+}
+```
+
+---
+
+### 4.2 查询状态
+
+**方法**: `GET`  
+**默认路径**: `/webhook/douyin-query-status`  
+**前端请求**: `GET /webhook/douyin-query-status?taskId=dy_1234567890_abc`
+
+根据任务所处阶段，返回不同结构：
+
+**阶段一：处理中**
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "generating",
+  "message": "正在生成分镜脚本...",
+  "allowRevise": false,
+  "allowConfirm": false
+}
+```
+
+**阶段二：分镜稿件待确认**  
+`stepName` 为 `"douyin_draft"` 时前端显示文案确认界面：
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "waiting_user_feedback",
+  "stepName": "douyin_draft",
+  "message": "分镜脚本已生成，请确认或提出修改意见",
+  "preview": {
+    "text": "【分镜脚本全文】\n分镜1：...\n分镜2：...",
+    "images": [],
+    "videos": []
+  },
+  "allowRevise": true,
+  "allowConfirm": true
+}
+```
+
+**阶段三：逐帧图片生成中**  
+`stepName` 为 `"douyin_frame_generating"` 时前端显示逐帧进度：
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "douyin_frame_generating",
+  "message": "正在生成第 2/5 帧图片...",
+  "frames": [
+    {
+      "index": 0,
+      "imageUrl": "https://your-cdn.com/frame0.jpg",
+      "storyboardText": "开场：产品特写，手表表盘旋转",
+      "status": "pending"
+    },
+    {
+      "index": 1,
+      "imageUrl": null,
+      "storyboardText": "功能演示：心率监测界面",
+      "status": "pending"
+    }
+  ],
+  "currentFrameIndex": 1
+}
+```
+
+**阶段四：逐帧审核**  
+`stepName` 为 `"douyin_frame_review"` 时前端显示当前帧供用户审核：
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "douyin_frame_review",
+  "message": "请审核第 1/5 帧图片",
+  "frames": [
+    {
+      "index": 0,
+      "imageUrl": "https://your-cdn.com/frame0.jpg",
+      "storyboardText": "开场：产品特写，手表表盘旋转",
+      "status": "pending"
+    }
+  ],
+  "currentFrameIndex": 0
+}
+```
+
+> `frames[].status` 取值：`"pending"`（待审核）、`"approved"`（已通过）、`"rejected"`（已拒绝重新生成）
+
+**阶段五：视频生成中**  
+`stepName` 为 `"douyin_video_generating"` 时前端显示视频生成进度：
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "douyin_video_generating",
+  "message": "所有帧已通过，正在合成视频..."
+}
+```
+
+**阶段六：视频待审核**  
+`stepName` 为 `"douyin_video_review"` 时前端显示视频播放器：
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "douyin_video_review",
+  "message": "视频已生成，请审核",
+  "videoUrl": "https://your-cdn.com/output_video.mp4",
+  "preview": {
+    "text": "【分镜脚本全文】",
+    "images": [],
+    "videos": ["https://your-cdn.com/output_video.mp4"]
+  }
+}
+```
+
+**阶段七：任务完成**
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "completed",
+  "stepName": "final",
+  "message": "抖音视频制作完成！",
+  "videoUrl": "https://your-cdn.com/output_video.mp4",
+  "preview": {
+    "text": "【分镜脚本全文】",
+    "images": [],
+    "videos": ["https://your-cdn.com/output_video.mp4"]
+  }
+}
+```
+
+---
+
+### 4.3 用户操作（确认/修改分镜稿件）
+
+**方法**: `POST`  
+**默认路径**: `/webhook/douyin-user-action`
+
+**提交修改意见**:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "action": "revise",
+  "feedback": "分镜3改为户外场景，增加运动感",
+  "previousText": "（首次修改携带初稿脚本全文，之后为空字符串）"
+}
+```
+
+**确认分镜稿件**（触发逐帧图片生成）:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "action": "confirm",
+  "feedback": "",
+  "previousText": "已确认的分镜脚本全文"
+}
+```
+
+**确认视频完成**:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "action": "confirm_video",
+  "feedback": "",
+  "previousText": ""
+}
+```
+
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "status": "processing",
+  "message": "已接收，正在处理..."
+}
+```
+
+---
+
+### 4.4 单帧审核
+
+每帧图片生成后，前端显示该帧供用户通过或拒绝。
+
+**方法**: `POST`  
+**默认路径**: `/webhook/douyin-frame-action`
+
+**通过当前帧**:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "frameIndex": 0,
+  "action": "approve",
+  "feedback": ""
+}
+```
+
+**拒绝并要求重新生成**:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "frameIndex": 0,
+  "action": "reject",
+  "feedback": "画面太暗，改为明亮户外场景"
+}
+```
+
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "status": "processing",
+  "message": "审核已提交，正在生成下一帧..."
+}
+```
+
+> n8n 收到 `approve` 后继续生成下一帧；收到 `reject` 后根据 `feedback` 重新生成该帧，完成后将新图片 URL 更新到对应帧，`stepName` 改回 `"douyin_frame_review"`，`currentFrameIndex` 指向该帧。
+
+**所有帧审核通过后的轮询响应**（前端此时会出现"开始生成视频"按钮）:
+```json
+{
+  "success": true,
+  "taskId": "dy_1234567890_abc",
+  "status": "processing",
+  "stepName": "douyin_frame_review",
+  "message": "所有帧均已审核通过，可以开始生成视频",
+  "frames": [
+    { "index": 0, "imageUrl": "...", "storyboardText": "...", "status": "approved" },
+    { "index": 1, "imageUrl": "...", "storyboardText": "...", "status": "approved" }
+  ],
+  "currentFrameIndex": 1
+}
+```
+
+---
+
+### 4.5 触发视频生成
+
+所有帧审核通过后，用户点击"开始生成视频"按钮触发此接口。
+
+**方法**: `POST`  
+**默认路径**: `/webhook/douyin-generate-video`
+
+**前端请求体**:
+```json
+{
+  "taskId": "dy_1234567890_abc",
+  "confirmedText": "已确认的分镜脚本全文",
+  "frames": [
+    { "index": 0, "imageUrl": "https://your-cdn.com/frame0.jpg", "storyboardText": "开场：产品特写" },
+    { "index": 1, "imageUrl": "https://your-cdn.com/frame1.jpg", "storyboardText": "功能演示" }
+  ]
+}
+```
+
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "status": "processing",
+  "message": "视频生成已启动，请稍候..."
+}
+```
+
+---
+
+### 4.6 重新生成视频
+
+视频审核不通过时，用户可点击"重新生成视频"（不重走图片生成流程）。
+
+**方法**: `POST`  
+**默认路径**: `/webhook/douyin-regenerate-video`
+
+**前端请求体**:
+```json
+{
+  "taskId": "dy_1234567890_abc"
+}
+```
+
+**n8n 立即返回**:
+```json
+{
+  "success": true,
+  "status": "processing",
+  "message": "正在重新生成视频..."
+}
+```
+
+---
+
+## 5. 通用字段参考
+
+### 5.1 status 取值
+
+| status | 含义 | 适用平台 |
+|--------|------|----------|
+| `processing` | 后台处理中 | 两者 |
+| `waiting_user_feedback` | 等待用户确认/修改 | 两者 |
+| `completed` | 任务完成 | 两者 |
+| `failed` | 任务失败 | 两者 |
+
+### 5.2 stepName 取值（影响前端界面渲染）
+
+| stepName | 前端表现 | 说明 |
+|----------|----------|------|
+| `generating` / `draft` / `revising` / 其他 | 进度条 + 状态文字 | 通用处理中 |
+| `douyin_draft` | 文案审核界面（确认/修改按钮） | 抖音分镜稿件待确认 |
+| `douyin_frame_generating` | 逐帧进度 + 缩略图列表 | 抖音帧图片生成中 |
+| `douyin_frame_review` | 大图预览 + 通过/拒绝按钮 | 抖音帧审核 |
+| `douyin_video_generating` | 视频生成中旋转动画 | 抖音视频合成中 |
+| `douyin_video_review` | 视频播放器 + 确认/重新生成按钮 | 抖音视频审核 |
+| `final` | 完成展示（文案+图片 或 视频） | 任务完成 |
+
+### 5.3 history 消息格式
+
+```json
+{
+  "role": "system",
+  "type": "status",
+  "content": "✅ 工作流已启动",
+  "timestamp": 1700000000000
+}
+```
+
+| 字段 | 取值 |
+|------|------|
+| `role` | `"system"` / `"user"` / `"assistant"` |
+| `type` | `"status"` / `"preview"` / `"error"` |
+| `content` | 显示文本 |
+| `timestamp` | Unix 毫秒时间戳 |
+
+---
+
+## 6. Docker 部署
+
+### 6.1 环境变量完整列表
+
+| 变量名 | 对应接口 | 说明 |
+|--------|----------|------|
+| `XHS_START_WORKFLOW_URL` | 小红书启动工作流 | 优先级高于旧版 `START_WORKFLOW_URL` |
+| `XHS_STATUS_QUERY_URL` | 小红书查询状态 | 优先级高于旧版 `STATUS_QUERY_URL` |
+| `XHS_USER_ACTION_URL` | 小红书用户操作 | 优先级高于旧版 `USER_ACTION_URL` |
+| `XHS_REGENERATE_IMAGE_URL` | 小红书重新生成图片 | — |
+| `DOUYIN_START_WORKFLOW_URL` | 抖音启动工作流 | — |
+| `DOUYIN_STATUS_QUERY_URL` | 抖音查询状态 | — |
+| `DOUYIN_USER_ACTION_URL` | 抖音用户操作（确认/修改稿件/确认视频） | — |
+| `DOUYIN_FRAME_ACTION_URL` | 抖音单帧审核 | — |
+| `DOUYIN_GENERATE_VIDEO_URL` | 抖音触发视频生成 | — |
+| `DOUYIN_REGENERATE_VIDEO_URL` | 抖音重新生成视频 | — |
+| `MOCK_ENABLED` | — | `false` 关闭 Mock，`true` 开启本地测试 |
+
+> **向后兼容**：`START_WORKFLOW_URL`、`STATUS_QUERY_URL`、`USER_ACTION_URL`（不带前缀）仍可用，会被注入为小红书接口。`XHS_*` 变量优先级更高，可覆盖旧版变量。
+
+---
+
+### 6.2 只更新抖音部分（小红书保持不变）
+
+停止旧容器，重新启动时**只传入抖音相关变量**，小红书 URL 保持容器内默认值（或原先已注入的值）不变：
 
 ```bash
-# 在 n8n 的 .env 或 docker-compose 中添加
-N8N_EDITOR_BASE_URL=https://your-n8n.example.com
-WEBHOOK_URL=https://your-n8n.example.com
+# 停止并删除旧容器
+docker stop workflow-studio
+docker rm workflow-studio
+
+# 重新启动，只注入抖音 6 个 URL
+docker run -d \
+  --name workflow-studio \
+  --restart unless-stopped \
+  -p 3000:80 \
+  -e DOUYIN_START_WORKFLOW_URL="https://your-n8n.example.com/webhook/douyin-start-workflow" \
+  -e DOUYIN_STATUS_QUERY_URL="https://your-n8n.example.com/webhook/douyin-query-status" \
+  -e DOUYIN_USER_ACTION_URL="https://your-n8n.example.com/webhook/douyin-user-action" \
+  -e DOUYIN_FRAME_ACTION_URL="https://your-n8n.example.com/webhook/douyin-frame-action" \
+  -e DOUYIN_GENERATE_VIDEO_URL="https://your-n8n.example.com/webhook/douyin-generate-video" \
+  -e DOUYIN_REGENERATE_VIDEO_URL="https://your-n8n.example.com/webhook/douyin-regenerate-video" \
+  ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
 ```
 
-**方式 B: 在 Nginx 反向代理中配置**
+> 把 `https://your-n8n.example.com` 替换为你真实的 n8n 域名，路径部分保持不变（与你在 n8n 中创建的 Webhook 路径一致）。
 
-如果你的 n8n 前面有 Nginx，添加：
+---
+
+### 6.3 同时注入小红书和抖音所有 URL
+
+```bash
+docker stop workflow-studio && docker rm workflow-studio
+
+docker run -d \
+  --name workflow-studio \
+  --restart unless-stopped \
+  -p 3000:80 \
+  \
+  -e XHS_START_WORKFLOW_URL="https://your-n8n.example.com/webhook/start-workflow" \
+  -e XHS_STATUS_QUERY_URL="https://your-n8n.example.com/webhook/query-status" \
+  -e XHS_USER_ACTION_URL="https://your-n8n.example.com/webhook/user-action" \
+  -e XHS_REGENERATE_IMAGE_URL="https://your-n8n.example.com/webhook/xhs-regenerate-image" \
+  \
+  -e DOUYIN_START_WORKFLOW_URL="https://your-n8n.example.com/webhook/douyin-start-workflow" \
+  -e DOUYIN_STATUS_QUERY_URL="https://your-n8n.example.com/webhook/douyin-query-status" \
+  -e DOUYIN_USER_ACTION_URL="https://your-n8n.example.com/webhook/douyin-user-action" \
+  -e DOUYIN_FRAME_ACTION_URL="https://your-n8n.example.com/webhook/douyin-frame-action" \
+  -e DOUYIN_GENERATE_VIDEO_URL="https://your-n8n.example.com/webhook/douyin-generate-video" \
+  -e DOUYIN_REGENERATE_VIDEO_URL="https://your-n8n.example.com/webhook/douyin-regenerate-video" \
+  \
+  ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
+```
+
+---
+
+### 6.4 本地开发（Mock 模式）
+
+```bash
+# Mock 模式（无需真实 n8n，用于前端调试）
+docker run -d -p 3000:80 \
+  -e MOCK_ENABLED=true \
+  workflow-studio
+
+# 关闭 Mock（生产模式）
+docker run -d -p 3000:80 \
+  -e MOCK_ENABLED=false \
+  -e DOUYIN_START_WORKFLOW_URL="..." \
+  workflow-studio
+```
+
+> **注意**：Mock 模式下数据存储在浏览器内存中，刷新页面后进行中的任务状态会丢失，这是 Mock 的已知限制。真实 n8n 后端没有此问题。
+
+---
+
+### 6.5 使用 docker-compose（推荐）
+
+创建 `docker-compose.yml`：
+
+```yaml
+version: '3.8'
+
+services:
+  workflow-studio:
+    image: ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
+    container_name: workflow-studio
+    ports:
+      - "3000:80"
+    environment:
+      # 小红书接口
+      - XHS_START_WORKFLOW_URL=https://your-n8n.example.com/webhook/start-workflow
+      - XHS_STATUS_QUERY_URL=https://your-n8n.example.com/webhook/query-status
+      - XHS_USER_ACTION_URL=https://your-n8n.example.com/webhook/user-action
+      - XHS_REGENERATE_IMAGE_URL=https://your-n8n.example.com/webhook/xhs-regenerate-image
+      # 抖音接口
+      - DOUYIN_START_WORKFLOW_URL=https://your-n8n.example.com/webhook/douyin-start-workflow
+      - DOUYIN_STATUS_QUERY_URL=https://your-n8n.example.com/webhook/douyin-query-status
+      - DOUYIN_USER_ACTION_URL=https://your-n8n.example.com/webhook/douyin-user-action
+      - DOUYIN_FRAME_ACTION_URL=https://your-n8n.example.com/webhook/douyin-frame-action
+      - DOUYIN_GENERATE_VIDEO_URL=https://your-n8n.example.com/webhook/douyin-generate-video
+      - DOUYIN_REGENERATE_VIDEO_URL=https://your-n8n.example.com/webhook/douyin-regenerate-video
+    restart: unless-stopped
+```
+
+```bash
+docker-compose up -d        # 启动
+docker-compose down         # 停止
+docker-compose pull && docker-compose up -d  # 更新到最新镜像
+```
+
+---
+
+## 7. CORS 跨域配置
+
+前端是静态 SPA，直接从浏览器发起请求到 n8n，需确保 n8n 允许跨域。
+
+### 方式 A：n8n 环境变量（推荐）
+
+```bash
+N8N_EDITOR_BASE_URL=https://your-n8n.example.com
+WEBHOOK_URL=https://your-n8n.example.com
+N8N_CORS_ALLOW_ORIGIN=*
+```
+
+### 方式 B：Nginx 反向代理
+
+在 n8n 前置的 Nginx 中添加：
+
 ```nginx
 location /webhook/ {
     proxy_pass http://n8n:5678;
@@ -454,214 +828,45 @@ location /webhook/ {
 
 ---
 
-## 4. Docker 部署
+## 8. 常见问题
 
-### 4.1 本地构建
+### Q1：轮询超时怎么办？
 
-```bash
-# 构建镜像
-docker build -t workflow-studio .
+默认超时 5 分钟。AI 处理较慢时，修改 `src/config.js` 中的 `POLL_TIMEOUT`（单位毫秒），重新构建镜像。
 
-# 运行（Mock 模式）
-docker run -d -p 3000:80 workflow-studio
+### Q2：n8n 中如何存储任务状态？
 
-# 运行（连接真实 n8n）
-docker run -d -p 3000:80 \
-  -e N8N_BASE_URL=https://your-n8n.example.com \
-  -e MOCK_ENABLED=false \
-  workflow-studio
-```
+推荐方案：
+- **轻量**：n8n 内置的静态数据（Static Data）或 Redis Node
+- **生产**：PostgreSQL / MySQL，每个任务一行，字段包括 `taskId`、`status`、`stepName`、`preview_json`、`frames_json`、`video_url`
 
-### 4.2 使用 docker-compose
+### Q3：前端如何区分小红书和抖音的请求？
 
-```bash
-# 编辑 docker-compose.yml 中的环境变量，然后：
-docker-compose up -d
-```
+前端在 `startWorkflow` 请求体中携带 `"platform": "xiaohongshu"` 或 `"platform": "douyin"`，两个平台走完全不同的 n8n Workflow URL，n8n 内部无需再做判断。
 
-### 4.3 环境变量说明
+### Q4：抖音逐帧审核时，拒绝后 n8n 如何处理？
 
-| 变量名              | 说明                                | 默认值                              |
-|--------------------|-------------------------------------|--------------------------------------|
-| `N8N_BASE_URL`     | n8n 服务地址（统一设置三个接口的前缀） | `https://your-n8n-domain.com`       |
-| `START_WORKFLOW_URL`| 启动工作流接口（单独覆盖）            | 从 N8N_BASE_URL 推导                |
-| `STATUS_QUERY_URL` | 查询状态接口（单独覆盖）              | 从 N8N_BASE_URL 推导                |
-| `USER_ACTION_URL`  | 用户操作接口（单独覆盖）              | 从 N8N_BASE_URL 推导                |
-| `MOCK_ENABLED`     | 是否开启 Mock 模式                   | `false`                              |
-| `PORT`             | 映射到宿主机的端口（docker-compose）   | `3000`                               |
+n8n 收到 `reject` + `feedback` 后：
+1. 根据 `frameIndex` 找到对应帧的 `storyboardText`
+2. 结合 `feedback` 重新调用图片生成 API
+3. 将新图片 URL 更新到该帧
+4. 将该帧 `status` 改为 `"pending"`，`currentFrameIndex` 指回该帧
+5. `stepName` 保持 `"douyin_frame_review"`
 
----
+前端轮询到更新后会自动显示新图片供再次审核。
 
-## 5. GitHub 发布与服务器部署
+### Q5：图片/视频 URL 需要有效多久？
 
-### 5.1 推送到 GitHub
+建议至少 **24 小时**可访问。前端会将 URL 存入 localStorage，用户后续查看历史任务时仍会尝试加载。URL 失效后图片会静默隐藏（前端已做 `onError` 处理）。
+
+### Q6：Mock 模式下刷新页面任务消失？
+
+Mock 模式的任务状态存在浏览器内存（`mockTasks` 对象）中，刷新后丢失。前端 localStorage 中仍有任务记录，但轮询时会收到"任务不存在"而标记为失败。这是 Mock 的设计限制，**真实 n8n 后端不受影响**。
+
+### Q7：如何在服务器上更新镜像？
 
 ```bash
-# 初始化（如未初始化）
-git init
-git add .
-git commit -m "feat: add Docker support and n8n integration guide"
-
-# 创建 GitHub 仓库后
-git remote add origin https://github.com/YOUR_USERNAME/n8n-workflow-studio.git
-git push -u origin main
-```
-
-### 5.2 自动构建 Docker 镜像
-
-项目已包含 `.github/workflows/docker-publish.yml`，推送代码到 main 分支后会自动：
-
-1. 构建 Docker 镜像
-2. 推送到 GitHub Container Registry (`ghcr.io`)
-3. 打标签: `latest` + commit SHA
-
-**首次使用需确认**:
-- GitHub 仓库的 Settings → Actions → General → Workflow permissions → 选择 **Read and write permissions**
-
-### 5.3 服务器部署
-
-在你的服务器上执行以下操作：
-
-#### 方式 A: 直接 docker run
-
-```bash
-# 登录 GitHub Container Registry
-echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_USERNAME --password-stdin
-
-# 拉取镜像
 docker pull ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
-
-# 运行
-docker run -d \
-  --name workflow-studio \
-  --restart unless-stopped \
-  -p 3000:80 \
-  -e N8N_BASE_URL=https://your-n8n.example.com \
-  -e MOCK_ENABLED=false \
-  ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
-```
-
-#### 方式 B: docker-compose (推荐)
-
-在服务器上创建 `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  workflow-studio:
-    image: ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
-    container_name: workflow-studio
-    ports:
-      - "3000:80"
-    environment:
-      - N8N_BASE_URL=https://your-n8n.example.com
-      - MOCK_ENABLED=false
-    restart: unless-stopped
-```
-
-```bash
-# 登录 ghcr.io
-echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_USERNAME --password-stdin
-
-# 启动
-docker-compose up -d
-
-# 更新
-docker-compose pull && docker-compose up -d
-```
-
-#### 方式 C: 创建一键部署脚本
-
-在服务器上保存以下脚本 `deploy.sh`:
-
-```bash
-#!/bin/bash
-set -e
-
-GITHUB_USER="YOUR_USERNAME"
-IMAGE="ghcr.io/${GITHUB_USER}/n8n-workflow-studio:latest"
-N8N_URL="https://your-n8n.example.com"
-
-echo "==> 拉取最新镜像..."
-docker pull $IMAGE
-
-echo "==> 停止旧容器..."
-docker stop workflow-studio 2>/dev/null || true
-docker rm workflow-studio 2>/dev/null || true
-
-echo "==> 启动新容器..."
-docker run -d \
-  --name workflow-studio \
-  --restart unless-stopped \
-  -p 3000:80 \
-  -e N8N_BASE_URL=$N8N_URL \
-  -e MOCK_ENABLED=false \
-  $IMAGE
-
-echo "==> 部署完成！访问 http://$(hostname -I | awk '{print $1}'):3000"
-```
-
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
-
-### 5.4 GitHub Token 创建
-
-如果你的仓库是私有的，需要创建 Token：
-
-1. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
-2. Generate new token
-3. 勾选 `read:packages` 权限
-4. 复制 Token，在服务器上使用
-
-如果仓库是 **公开** 的，Docker 镜像也会是公开的，无需 Token 即可拉取。
-
----
-
-## 6. 常见问题
-
-### Q1: 如何验证 n8n 连接是否正常？
-
-前端右上角有连接状态指示灯（Header 组件）。也可以在浏览器控制台检查网络请求。
-
-### Q2: 前端轮询超时怎么办？
-
-默认超时 5 分钟。如果 AI 生成需要更长时间，修改 `config.js` 中的 `POLL_TIMEOUT` 值（单位毫秒）。
-
-### Q3: 如何支持更多平台？
-
-1. 在 `src/formSchema.js` 中添加新平台的表单 Schema
-2. 在 `src/components/PlatformTabs.jsx` 中添加新 Tab
-3. 在 n8n 中创建对应平台的 AI Prompt 和工作流分支
-
-### Q4: 如何更新已部署的版本？
-
-```bash
-# 服务器上执行
-docker pull ghcr.io/YOUR_USERNAME/n8n-workflow-studio:latest
-docker-compose up -d
-# 或
-./deploy.sh
-```
-
-### Q5: 如何使用自定义域名？
-
-在 Nginx/Caddy 中配置反向代理：
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name studio.yourdomain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
+docker stop workflow-studio && docker rm workflow-studio
+# 重新执行 6.2 或 6.3 中的 docker run 命令
 ```

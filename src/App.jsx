@@ -12,8 +12,19 @@ import Header from './components/Header'
 import LeftPanel from './components/LeftPanel'
 import RightPanel from './components/RightPanel'
 
-function TaskInstance({ platform, onPlatformChange, taskRecords, onDeleteTask, onClearTasks, onTaskSaved }) {
-  const task = useTask(onTaskSaved)
+function TaskInstance({
+  platform,
+  onPlatformChange,
+  taskRecords,
+  activeTaskId,
+  initialTaskRecord,
+  onDeleteTask,
+  onClearTasks,
+  onTaskSaved,
+  onNewTask,
+  onSelectTask,
+}) {
+  const task = useTask(onTaskSaved, initialTaskRecord)
 
   const handleSubmit = useCallback((formData) => {
     task.submit(platform, formData)
@@ -35,8 +46,11 @@ function TaskInstance({ platform, onPlatformChange, taskRecords, onDeleteTask, o
           isSubmitting={isFormLocked}
           taskStatus={task.taskStatus}
           taskRecords={taskRecords}
+          activeTaskId={activeTaskId}
           onDeleteTask={onDeleteTask}
           onClearTasks={onClearTasks}
+          onNewTask={onNewTask}
+          onSelectTask={onSelectTask}
         />
       </aside>
 
@@ -127,10 +141,21 @@ export default function App() {
   const {
     taskRecords,
     activeTaskKey,
+    selectedTaskRecord,
     refreshTaskRecords,
+    newTask,
+    selectTask,
     deleteTaskRecord,
     clearTaskRecords,
   } = useTaskManager()
+
+  // 当前活跃任务 ID（用于在列表中高亮）
+  const activeTaskId = selectedTaskRecord?.taskId || null
+
+  // 选择任务时同步切换平台
+  const handleSelectTask = useCallback((taskId) => {
+    selectTask(taskId)
+  }, [selectTask])
 
   return (
     <div className="flex h-full flex-col bg-gray-50 dark:bg-gray-900">
@@ -141,18 +166,21 @@ export default function App() {
 
       <main className="flex flex-1 overflow-hidden">
         {/*
-          key={activeTaskKey} 确保平台切换或新任务时 useTask 实例干净重置。
-          目前每次平台切换都重置任务状态（简单可靠），
-          如需跨平台保留任务可去掉 platform 部分的 key 依赖。
+          key={activeTaskKey} 确保切换任务或新任务时 useTask 实例干净重置。
+          initialTaskRecord 用于从持久化数据恢复已有任务状态。
         */}
         <TaskInstance
           key={activeTaskKey}
-          platform={platform}
+          platform={selectedTaskRecord?.platform || platform}
           onPlatformChange={setPlatform}
           taskRecords={taskRecords}
+          activeTaskId={activeTaskId}
+          initialTaskRecord={selectedTaskRecord}
           onDeleteTask={deleteTaskRecord}
           onClearTasks={clearTaskRecords}
           onTaskSaved={refreshTaskRecords}
+          onNewTask={newTask}
+          onSelectTask={handleSelectTask}
         />
       </main>
     </div>
