@@ -3,6 +3,7 @@
  * 封装单任务的完整状态机，支持小红书和抖音两种流程
  *
  * 小红书流程：submitting → processing → waiting_user_feedback → (revising →) completed
+ *   额外：文案确认后 → image_review（逐张审图）→ completed
  *   额外：completed 后可 regenerate_images → processing → completed
  *
  * 抖音流程：submitting → processing → waiting_user_feedback (稿件) →
@@ -21,12 +22,13 @@ import {
 } from '../api'
 import { usePoller } from './usePoller'
 import { saveTask } from '../taskStore'
+import { registerTask, unregisterTask, isRegistered } from '../backgroundPoller'
 
 const INITIAL_STATE = {
   taskId: null,
   platform: 'xiaohongshu',
   formParams: null,
-  taskStatus: 'idle',      // idle|submitting|processing|waiting_user_feedback|revising|frame_review|video_generating|video_review|completed|failed
+  taskStatus: 'idle',      // idle|submitting|processing|waiting_user_feedback|revising|image_review|frame_review|video_generating|video_review|completed|failed
   stepName: '',
   statusMessage: '',
   preview: null,           // { text, images, videos }
@@ -37,10 +39,13 @@ const INITIAL_STATE = {
   errorMessage: '',
   isActionSubmitting: false,
   createdAt: null,
+  // 小红书逐张审图
+  xhsImages: [],           // [{url, status: 'pending'|'approved'|'rejected'}]
+  currentXhsImageIndex: 0,
   // 抖音专用
   frames: [],              // [{ index, imageUrl, storyboardText, status }]
   currentFrameIndex: 0,
-  confirmedText: '',       // 抖音已确认的分镜稿件
+  confirmedText: '',       // 已确认的文案/稿件
   videoUrl: null,
 }
 
@@ -48,7 +53,6 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed'])
 
 /**
  * 从持久化的任务记录恢复初始状态
- * taskStore 中保存的 status 字段对应 taskStatus
  */
 function hydrateFromRecord(record) {
   if (!record) return INITIAL_STATE
@@ -64,6 +68,8 @@ function hydrateFromRecord(record) {
     previewHistory: record.previewHistory || [],
     errorMessage: record.errorMessage || '',
     createdAt: record.createdAt || null,
+    xhsImages: record.xhsImages || [],
+    currentXhsImageIndex: record.currentXhsImageIndex || 0,
     frames: record.frames || [],
     videoUrl: record.videoUrl || null,
   }
@@ -96,9 +102,15 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
           previewHistory: next.previewHistory,
           errorMessage: next.errorMessage || null,
           createdAt: next.createdAt,
+          xhsImages: next.xhsImages,
+          currentXhsImageIndex: next.currentXhsImageIndex,
           // 抖音专用字段
           frames: next.frames,
           videoUrl: next.videoUrl,
+          // 图片操作锁（持久化，供 backgroundPoller 使用）
+          _approvingImageIndex: approvingImageIndexRef.current,
+          _rejectingImage: rejectingImageRef.current,
+          _actionLock: actionLockRef.current,
         })
         if (onTaskSaved) onTaskSaved()
       }
@@ -106,11 +118,37 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     })
   }, [onTaskSaved])
 
+  // 用户操作锁：记录操作触发时间和操作前的状态
+  // 在锁定期间，若轮询返回"操作前的旧状态"则忽略，防止竞态覆盖乐观更新
+  const actionLockRef = useRef(initialTaskRecord?._actionLock || null)
+
+  // 图片重新生成锁：记录正在重新生成的图片的索引和被拒绝时的 URL
+  const rejectingImageRef = useRef(initialTaskRecord?._rejectingImage || null)
+
+  // 图片通过锁：记录已通过的图片索引，轮询回来若 currentImageIndex 仍 <= 该值则跳过
+  const approvingImageIndexRef = useRef(initialTaskRecord?._approvingImageIndex ?? null)
+
   // ── 轮询回调 ───────────────────────────────────────────────
   const handleStatusUpdate = useCallback((result) => {
-    if (!result.success) {
+    // success:false 且明确是 failed 状态才算真正失败
+    if (!result.success && result.status === 'failed') {
       patch({ taskStatus: 'failed', errorMessage: result.message || '获取状态失败' })
       return
+    }
+
+    // 操作锁：若在锁定期内收到"操作前的旧状态"，跳过此次更新
+    // 注意：当存在图片专用锁时，对 xhs_image_review 结果不在此拦截，交给下方更精准的图片锁处理
+    const hasImageLock = approvingImageIndexRef.current !== null || rejectingImageRef.current !== null
+    if (actionLockRef.current) {
+      const { prevStatus, lockedAt, lockDurationMs } = actionLockRef.current
+      const isExpired = Date.now() - lockedAt > lockDurationMs
+      if (isExpired) {
+        actionLockRef.current = null
+      } else if (result.status === prevStatus && !(hasImageLock && result.stepName === 'xhs_image_review')) {
+        return
+      } else {
+        actionLockRef.current = null
+      }
     }
 
     const cur = stateRef.current
@@ -127,6 +165,42 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
     if (result.status === 'failed') {
       patch({ ...common, taskStatus: 'failed', errorMessage: result.message || '工作流执行失败' })
+      return
+    }
+
+    // 小红书：逐张审图
+    if (!isDouyin && result.stepName === 'xhs_image_review') {
+      const incomingIndex = result.currentImageIndex ?? cur.currentXhsImageIndex
+      const incomingImages = result.xhsImages || cur.xhsImages
+
+      // 通过锁：若轮询返回的 index 仍 <= 已通过的 index，说明新图还未生成，跳过
+      if (approvingImageIndexRef.current !== null) {
+        if (incomingIndex <= approvingImageIndexRef.current) {
+          return  // 还停在旧图，跳过
+        }
+        // index 已推进，下一张已到位，清锁
+        approvingImageIndexRef.current = null
+      }
+
+      // 拒绝重新生成锁：若该索引的图片 URL 还和被拒绝时相同，说明新图还没生成完，跳过
+      if (rejectingImageRef.current !== null) {
+        const { index: lockIndex, rejectedUrl } = rejectingImageRef.current
+        if (incomingIndex === lockIndex) {
+          const incomingImg = incomingImages[lockIndex]
+          const incomingUrl = incomingImg ? incomingImg.url : ''
+          if (incomingUrl === rejectedUrl) {
+            return  // 还是旧图，跳过
+          }
+          rejectingImageRef.current = null
+        }
+      }
+
+      patch({
+        ...common,
+        taskStatus: 'image_review',
+        currentXhsImageIndex: incomingIndex,
+        xhsImages: incomingImages,
+      })
       return
     }
 
@@ -180,6 +254,14 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       return
     }
 
+    // 稳定状态保护：已到达需要用户操作的状态时，不允许轮询将其降级为 processing
+    // （n8n 并发执行时 staticData 可能被覆盖，导致轮询返回 processing，但本地已有初稿/图片）
+    // 用户自己的操作会在发请求前先把本地状态切成 processing，因此不会被此保护误拦
+    const STABLE_STATUSES = new Set(['waiting_user_feedback', 'image_review', 'frame_review', 'video_review'])
+    if (STABLE_STATUSES.has(cur.taskStatus) && result.status === 'processing') {
+      return
+    }
+
     // 仍在 processing
     patch({ ...common, taskStatus: 'processing', preview: result.preview || cur.preview })
   }, [patch])
@@ -190,134 +272,218 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
   const { start: startPolling, stop: stopPolling } = usePoller(handleStatusUpdate, handlePollError)
 
-  // 组件卸载时停止轮询
-  useEffect(() => () => stopPolling(), [stopPolling])
+  // 延迟轮询定时器（用户操作后给 n8n 留出处理时间，避免立即拿到旧状态）
+  const delayTimerRef = useRef(null)
 
-  // 恢复已有任务：若从 initialTaskRecord 恢复且任务未终止，自动重启轮询
+  // ── 前台接管：若任务在后台，先注销再开始前台轮询 ──────────
+  const startForegroundPolling = useCallback((taskId, platform) => {
+    if (isRegistered(taskId)) {
+      unregisterTask(taskId)
+    }
+    startPolling(taskId, platform)
+  }, [startPolling])
+
+  // ── 延迟后启动轮询（用于 confirm/revise 等操作，避免竞态覆盖乐观状态）──
+  const startPollingAfterDelay = useCallback((taskId, platform, delayMs = 5000) => {
+    // 先停掉当前轮询，避免竞态
+    stopPolling()
+    if (delayTimerRef.current) clearTimeout(delayTimerRef.current)
+    delayTimerRef.current = setTimeout(() => {
+      delayTimerRef.current = null
+      startForegroundPolling(taskId, platform)
+    }, delayMs)
+  }, [stopPolling, startForegroundPolling])
+
+  // ── 组件卸载：将未终态任务移交后台 ─────────────────────────
+  useEffect(() => {
+    return () => {
+      if (delayTimerRef.current) clearTimeout(delayTimerRef.current)
+      stopPolling()
+      const { taskId, platform, taskStatus } = stateRef.current
+      if (taskId && !TERMINAL_STATUSES.has(taskStatus) && taskStatus !== 'idle' && taskStatus !== 'submitting') {
+        registerTask(taskId, platform)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // 仅 unmount 时执行
+
+  // 恢复已有任务：若从 initialTaskRecord 恢复且任务未终止，自动重启前台轮询
   useEffect(() => {
     if (!initialTaskRecord) return
     const { taskId, platform, status } = initialTaskRecord
     if (!taskId || TERMINAL_STATUSES.has(status)) return
-    startPolling(taskId, platform || 'xiaohongshu')
+    startForegroundPolling(taskId, platform || 'xiaohongshu')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // 仅 mount 时执行一次
 
   // ── 提交表单 ───────────────────────────────────────────────
-  const submit = useCallback(async (platform, formData) => {
+  const submit = useCallback((platform, formData) => {
     const createdAt = Date.now()
+    // 前端预生成 sessionId，作为 taskId 立即使用，不等待 n8n 响应
+    const sessionId = uuidv4()
     isFirstReviseRef.current = true
 
-    setState({
-      ...INITIAL_STATE,
+    // 若当前已有运行中的任务，先移交后台轮询，避免成为孤儿任务
+    const prev = stateRef.current
+    if (prev.taskId && !TERMINAL_STATUSES.has(prev.taskStatus) && prev.taskStatus !== 'idle' && prev.taskStatus !== 'submitting') {
+      stopPolling()
+      if (delayTimerRef.current) { clearTimeout(delayTimerRef.current); delayTimerRef.current = null }
+      registerTask(prev.taskId, prev.platform)
+    }
+
+    // 清除旧的锁状态
+    approvingImageIndexRef.current = null
+    rejectingImageRef.current = null
+    actionLockRef.current = null
+
+    // 立即切换到 processing，表单马上解锁（不再 await HTTP 请求）
+    patch({
+      taskId: sessionId,
       platform,
       formParams: formData,
-      taskStatus: 'submitting',
-      statusMessage: '正在提交任务...',
+      taskStatus: 'processing',
+      statusMessage: '工作流已启动，正在生成内容...',
       createdAt,
     })
 
-    try {
-      const sessionId = uuidv4()
-      const result = await startWorkflow(platform, sessionId, formData)
+    // 立即开始轮询（n8n 收到请求后会用同一个 sessionId 存数据）
+    startForegroundPolling(sessionId, platform)
 
+    // 后台发送请求，不阻塞 UI
+    startWorkflow(platform, sessionId, formData).then(result => {
       if (!result.success) {
-        const failId = result.taskId || sessionId
         patch({
-          taskId: failId,
           taskStatus: 'failed',
           errorMessage: result.message || '启动工作流失败',
-          createdAt,
         })
-        return
+        stopPolling()
       }
-
-      const newTaskId = result.taskId
-      patch({
-        taskId: newTaskId,
-        taskStatus: 'processing',
-        statusMessage: result.message || '工作流已启动，正在处理...',
-        createdAt,
-      })
-      // 无论 n8n 是否立即返回内容，都启动轮询
-      startPolling(newTaskId, platform)
-
-    } catch (err) {
+      // 成功时不做任何事，轮询会自动更新状态
+    }).catch(err => {
       patch({
         taskStatus: 'failed',
         errorMessage: err.message || '提交失败，请检查网络连接',
-        createdAt,
       })
-    }
-  }, [patch, startPolling])
+      stopPolling()
+    })
+  }, [patch, startForegroundPolling, stopPolling])
 
   // ── 提交修改意见 ───────────────────────────────────────────
-  const revise = useCallback(async (feedback) => {
+  const revise = useCallback((feedback) => {
     const { taskId, preview, platform } = stateRef.current
     if (!taskId) return
-    try {
-      patch({ isActionSubmitting: true, taskStatus: 'revising', statusMessage: '正在提交修改意见...' })
-      const sendPreviousText = isFirstReviseRef.current ? (preview?.text || '') : ''
-      const result = await submitUserAction(taskId, 'revise', feedback, sendPreviousText, platform)
-      isFirstReviseRef.current = false
+    const sendPreviousText = isFirstReviseRef.current ? (preview?.text || '') : ''
+    isFirstReviseRef.current = false
 
-      if (!result.success) {
-        patch({ taskStatus: 'failed', errorMessage: result.message || '提交修改失败', isActionSubmitting: false })
-        return
-      }
-      // 操作成功后重新轮询
-      patch({ taskStatus: 'processing', statusMessage: result.message || '修改意见已接收，重新生成中...', isActionSubmitting: false })
-      startPolling(taskId, platform)
-    } catch (err) {
-      patch({ taskStatus: 'failed', errorMessage: err.message || '提交修改失败', isActionSubmitting: false })
-    }
-  }, [patch, startPolling])
+    // 先设置锁，再 patch（patch 内 saveTask 会持久化锁状态）
+    actionLockRef.current = { prevStatus: 'waiting_user_feedback', lockedAt: Date.now(), lockDurationMs: 60000 }
+    patch({ isActionSubmitting: false, taskStatus: 'processing', statusMessage: '修改意见已接收，重新生成中...' })
+    startPollingAfterDelay(taskId, platform, 5000)
+
+    submitUserAction(taskId, 'revise', feedback, sendPreviousText, platform).catch(() => {
+      patch({ taskStatus: 'failed', errorMessage: '提交修改失败，请检查网络连接' })
+      stopPolling()
+    })
+  }, [patch, startPollingAfterDelay, stopPolling])
 
   // ── 确认稿件 ───────────────────────────────────────────────
-  const confirm = useCallback(async () => {
+  const confirm = useCallback(() => {
     const { taskId, preview, platform, previewHistory } = stateRef.current
     if (!taskId) return
-    try {
-      patch({ isActionSubmitting: true, taskStatus: 'processing', statusMessage: '确认成功，等待生成...' })
 
-      // 保存确认时的版本到历史
-      if (preview?.text) {
-        const updated = [
-          ...previewHistory,
-          { version: previewHistory.length + 1, label: '确认版本', text: preview.text, timestamp: Date.now() }
-        ]
-        patch({ previewHistory: updated, confirmedText: preview.text })
-      }
+    const updated = preview?.text ? [
+      ...previewHistory,
+      { version: previewHistory.length + 1, label: '确认版本', text: preview.text, timestamp: Date.now() }
+    ] : previewHistory
+    const confirmedText = preview?.text || ''
 
-      const result = await submitUserAction(taskId, 'confirm', '', preview?.text || '', platform)
-      if (!result.success) {
-        patch({ taskStatus: 'failed', errorMessage: result.message || '确认失败', isActionSubmitting: false })
-        return
-      }
-      patch({ taskStatus: 'processing', statusMessage: result.message || '确认成功，正在生成...', isActionSubmitting: false })
-      startPolling(taskId, platform)
-    } catch (err) {
-      patch({ taskStatus: 'failed', errorMessage: err.message || '确认失败', isActionSubmitting: false })
-    }
-  }, [patch, startPolling])
+    // 先设置锁，再 patch（patch 内 saveTask 会持久化锁状态）
+    // confirm + generate_images 两个请求串行，总时长可能较长，锁定10分钟
+    actionLockRef.current = { prevStatus: 'waiting_user_feedback', lockedAt: Date.now(), lockDurationMs: 600000 }
+    patch({
+      isActionSubmitting: false,
+      taskStatus: 'processing',
+      statusMessage: '确认成功，正在生成配图...',
+      previewHistory: updated,
+      confirmedText,
+    })
+    startPollingAfterDelay(taskId, platform, 8000)
+
+    // 第一步：confirm（快速结束，立即写DB）
+    // 第二步：confirm 完成后再发 generate_images（开始生图，confirm的DB写入此时已完成）
+    submitUserAction(taskId, 'confirm', '', confirmedText, platform)
+      .then(() => submitUserAction(taskId, 'generate_images', '', confirmedText, platform))
+      .catch(() => {
+        patch({ taskStatus: 'failed', errorMessage: '确认失败，请检查网络连接' })
+        stopPolling()
+      })
+  }, [patch, startPollingAfterDelay, stopPolling])
+
+  // ── 小红书：审核单张图片（通过）──────────────────────────
+  const approveXhsImage = useCallback((imageIndex) => {
+    const { taskId, platform, xhsImages } = stateRef.current
+    if (!taskId) return
+    const updatedImages = xhsImages.map((img, i) =>
+      i === imageIndex ? { ...img, status: 'approved' } : img
+    )
+    // 先设置锁 refs，再 patch（patch 内的 saveTask 会读取 refs 持久化到 localStorage）
+    approvingImageIndexRef.current = imageIndex
+    actionLockRef.current = { prevStatus: 'image_review', lockedAt: Date.now(), lockDurationMs: 60000 }
+    patch({
+      isActionSubmitting: false,
+      taskStatus: 'processing',
+      statusMessage: `第${imageIndex + 1}张图片审核通过，正在生成下一张...`,
+      xhsImages: updatedImages,
+    })
+    startPollingAfterDelay(taskId, platform, 5000)
+
+    submitUserAction(taskId, 'approve_image', '', String(imageIndex), platform).catch(() => {
+      approvingImageIndexRef.current = null
+      actionLockRef.current = null
+      patch({ isActionSubmitting: false, statusMessage: '审核提交失败，请检查网络连接' })
+    })
+  }, [patch, startPollingAfterDelay])
+
+  // ── 小红书：审核单张图片（拒绝）──────────────────────────
+  const rejectXhsImage = useCallback((imageIndex, feedback) => {
+    const { taskId, platform, xhsImages } = stateRef.current
+    if (!taskId) return
+    // 记录被拒绝图片的 URL，用于识别轮询回来的旧图
+    const rejectedUrl = xhsImages[imageIndex] ? xhsImages[imageIndex].url : ''
+    const updatedImages = xhsImages.map((img, i) =>
+      i === imageIndex ? { ...img, status: 'rejected' } : img
+    )
+    // 先设置锁 refs，再 patch
+    rejectingImageRef.current = { index: imageIndex, rejectedUrl }
+    actionLockRef.current = { prevStatus: 'image_review', lockedAt: Date.now(), lockDurationMs: 60000 }
+    patch({
+      isActionSubmitting: false,
+      taskStatus: 'processing',
+      statusMessage: `正在重新生成第${imageIndex + 1}张图片...`,
+      xhsImages: updatedImages,
+    })
+    startPollingAfterDelay(taskId, platform, 5000)
+
+    submitUserAction(taskId, 'reject_image', feedback, String(imageIndex), platform).catch(() => {
+      rejectingImageRef.current = null
+      actionLockRef.current = null
+      patch({ isActionSubmitting: false, statusMessage: '审核提交失败，请检查网络连接' })
+    })
+  }, [patch, startPollingAfterDelay])
 
   // ── 小红书：重新生成图片 ───────────────────────────────────
-  const regenImages = useCallback(async () => {
+  const regenImages = useCallback((confirmedTextArg) => {
     const { taskId, preview, confirmedText, platform } = stateRef.current
     if (!taskId) return
-    const text = confirmedText || preview?.text || ''
-    try {
-      patch({ isActionSubmitting: true, taskStatus: 'processing', statusMessage: '正在重新生成图片...' })
-      const result = await regenerateImages(taskId, text, platform)
-      if (!result.success) {
-        patch({ taskStatus: 'completed', errorMessage: result.message || '重新生成图片失败', isActionSubmitting: false })
-        return
-      }
-      patch({ taskStatus: 'processing', statusMessage: result.message || '正在重新生成图片...', isActionSubmitting: false })
-      startPolling(taskId, platform)
-    } catch (err) {
-      patch({ taskStatus: 'completed', errorMessage: err.message || '重新生成图片失败', isActionSubmitting: false })
-    }
-  }, [patch, startPolling])
+    const text = confirmedTextArg || confirmedText || preview?.text || ''
+    patch({ isActionSubmitting: false, taskStatus: 'processing', statusMessage: '正在重新生成图片...' })
+    startForegroundPolling(taskId, platform)
+
+    regenerateImages(taskId, text, platform).catch(() => {
+      patch({ taskStatus: 'completed', errorMessage: '重新生成图片失败，请检查网络连接' })
+      stopPolling()
+    })
+  }, [patch, startForegroundPolling, stopPolling])
 
   // ── 抖音：审核单帧 ─────────────────────────────────────────
   const approveFrame = useCallback(async (frameIndex) => {
@@ -325,7 +491,6 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     if (!taskId) return
     try {
       patch({ isActionSubmitting: true, statusMessage: `第${frameIndex + 1}帧审核通过，等待下一帧...` })
-      // 更新本地帧状态
       const updatedFrames = frames.map(f => f.index === frameIndex ? { ...f, status: 'approved' } : f)
       patch({ frames: updatedFrames })
 
@@ -335,11 +500,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         return
       }
       patch({ isActionSubmitting: false, taskStatus: 'processing', statusMessage: result.message || '正在生成下一帧...' })
-      startPolling(taskId, platform)
+      startForegroundPolling(taskId, platform)
     } catch (err) {
       patch({ isActionSubmitting: false, statusMessage: err.message || '审核提交失败' })
     }
-  }, [patch, startPolling])
+  }, [patch, startForegroundPolling])
 
   const rejectFrame = useCallback(async (frameIndex, feedback) => {
     const { taskId, platform, frames } = stateRef.current
@@ -355,11 +520,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         return
       }
       patch({ isActionSubmitting: false, taskStatus: 'processing', statusMessage: result.message || '正在重新生成该帧...' })
-      startPolling(taskId, platform)
+      startForegroundPolling(taskId, platform)
     } catch (err) {
       patch({ isActionSubmitting: false, statusMessage: err.message || '审核提交失败' })
     }
-  }, [patch, startPolling])
+  }, [patch, startForegroundPolling])
 
   // ── 抖音：触发视频生成 ─────────────────────────────────────
   const triggerGenerateVideo = useCallback(async () => {
@@ -374,11 +539,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         return
       }
       patch({ isActionSubmitting: false, statusMessage: result.message || '视频生成中，请稍候...' })
-      startPolling(taskId, platform)
+      startForegroundPolling(taskId, platform)
     } catch (err) {
       patch({ taskStatus: 'frame_review', isActionSubmitting: false, statusMessage: err.message || '触发视频生成失败' })
     }
-  }, [patch, startPolling])
+  }, [patch, startForegroundPolling])
 
   // ── 抖音：重新生成视频 ─────────────────────────────────────
   const regenVideo = useCallback(async () => {
@@ -392,11 +557,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         return
       }
       patch({ isActionSubmitting: false, statusMessage: result.message || '正在重新生成视频...' })
-      startPolling(taskId, platform)
+      startForegroundPolling(taskId, platform)
     } catch (err) {
       patch({ taskStatus: 'video_review', isActionSubmitting: false, statusMessage: err.message || '重新生成视频失败' })
     }
-  }, [patch, startPolling])
+  }, [patch, startForegroundPolling])
 
   // ── 抖音：确认视频，任务完成 ───────────────────────────────
   const confirmVideo = useCallback(async () => {
@@ -426,6 +591,8 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     submit,
     revise,
     confirm,
+    approveXhsImage,
+    rejectXhsImage,
     regenImages,
     approveFrame,
     rejectFrame,

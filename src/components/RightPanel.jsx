@@ -16,6 +16,7 @@ import UserActionBar from './UserActionBar'
 import RegenerateImagesButton from './RegenerateImagesButton'
 import DouyinFrameReview from './DouyinFrameReview'
 import DouyinVideoReview from './DouyinVideoReview'
+import XhsImageReview from './XhsImageReview'
 
 function VersionHistory({ previewHistory }) {
   const [expandedVersion, setExpandedVersion] = useState(null)
@@ -136,12 +137,16 @@ export default function RightPanel({
   allowConfirm,
   errorMessage,
   isActionSubmitting,
+  xhsImages,
+  currentXhsImageIndex,
   frames,
   currentFrameIndex,
   videoUrl,
   onRevise,
   onConfirm,
   onRetry,
+  onApproveXhsImage,
+  onRejectXhsImage,
   onRegenImages,
   onApproveFrame,
   onRejectFrame,
@@ -155,6 +160,7 @@ export default function RightPanel({
   const isCompleted = taskStatus === 'completed'
   const isProcessing = taskStatus === 'processing' || taskStatus === 'submitting' || taskStatus === 'revising' || taskStatus === 'video_generating'
   const isWaiting = taskStatus === 'waiting_user_feedback'
+  const isImageReview = taskStatus === 'image_review'
   const isFrameReview = taskStatus === 'frame_review'
   const isVideoReview = taskStatus === 'video_review'
 
@@ -176,6 +182,17 @@ export default function RightPanel({
 
         {/* 错误状态 */}
         {isFailed && <ErrorState message={errorMessage} onRetry={onRetry} />}
+
+        {/* ── 小红书：逐张图片审核 ── */}
+        {!isDouyin && isImageReview && (
+          <XhsImageReview
+            xhsImages={xhsImages || []}
+            currentIndex={currentXhsImageIndex}
+            isSubmitting={isActionSubmitting}
+            onApprove={onApproveXhsImage}
+            onReject={onRejectXhsImage}
+          />
+        )}
 
         {/* ── 抖音：分镜图片逐帧审核 ── */}
         {isDouyin && isFrameReview && (
@@ -214,7 +231,7 @@ export default function RightPanel({
 
         {/* ── 文案预览区（小红书全程 + 抖音稿件阶段）── */}
         {(isWaiting || isCompleted || (isProcessing && preview)) &&
-          !isFrameReview && !isVideoReview &&
+          !isImageReview && !isFrameReview && !isVideoReview &&
           !(isDouyin && (isFrameReview || isVideoReview || taskStatus === 'video_generating')) &&
           preview && preview.text && (
           <div className="space-y-6">
@@ -277,7 +294,7 @@ export default function RightPanel({
       </div>
 
       {/* 用户交互区（稿件修改/确认，小红书和抖音稿件阶段共用）*/}
-      {isWaiting && !isFrameReview && !isVideoReview && !isFailed && (
+      {isWaiting && !isImageReview && !isFrameReview && !isVideoReview && !isFailed && (
         <div className="mt-4 flex-shrink-0">
           <UserActionBar
             onRevise={onRevise}

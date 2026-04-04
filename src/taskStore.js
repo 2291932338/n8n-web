@@ -48,6 +48,8 @@ function writeAll(records) {
  *   statusMessage: string,
  *   errorMessage: string | null,
  *   createdAt: number,
+ *   xhsImages: Array,
+ *   currentXhsImageIndex: number,
  * }} task
  */
 export function saveTask(task) {

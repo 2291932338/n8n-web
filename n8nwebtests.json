@@ -1,0 +1,1665 @@
+{
+  "name": "n8nwebtest",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "start-workflows",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2192,
+        2064
+      ],
+      "id": "9f6d7fae-075f-4100-add7-69e8f4aaaeeb",
+      "name": "启动",
+      "webhookId": "2f0ac36d-1fca-474c-9954-47cde5adf90b"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "user-actions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1888,
+        624
+      ],
+      "id": "c30218d5-8aea-4e92-a9fe-54b3115e467e",
+      "name": "修改",
+      "webhookId": "a4f65c6e-2d52-45f6-8580-40e9fbcb123a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst taskId = body.sessionId || ('task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));\n\n// 初始化静态数据存储\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks) {\n  staticData.tasks = {};\n}\n\n// 保存初始任务状态\nstaticData.tasks[taskId] = {\n  status: 'processing',\n  stepName: '',\n  message: '工作流已启动，正在生成内容...',\n  preview: null,\n  previewHistory: [],\n  allowRevise: false,\n  allowConfirm: false,\n  xhsImages: [],\n  currentImageIndex: 0,\n  history: [],\n  createdAt: Date.now()\n};\n\nreturn {\n  json: {\n    success: true,\n    taskId: taskId,\n    status: 'processing',\n    message: '工作流已启动，正在生成内容...'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1904,
+        2096
+      ],
+      "id": "275bf37a-83cf-474e-8b87-32306b1cde44",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.taskId }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        2208
+      ],
+      "id": "8258ece0-023e-4348-9dff-53d32980064c",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        2160
+      ],
+      "id": "0b200d71-e09f-4569-9197-e4340401d8d4",
+      "name": "Think"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=主题/产品:{{ $json.body.params['主题/产品'] }}\n目标人群：{{ $json.body.params['目标人群'] }}\n文案风格:{{ $json.body.params['文案风格'] }}\n核心卖点:{{ $json.body.params['核心卖点'] }}\n发布目的:{{ $json.body.params['发布目的'] }}\n字数范围:{{ $json.body.params['字数范围'] }}\n图片张数:{{ $json.body.params['图片张数'] }}\n标题风格:{{ $json.body.params['标题风格'] }}\n标签/关键字:{{ $json.body.params['标签/关键词'] }}\n补充说明:{{ $json.body.params['补充说明'] }}",
+        "options": {
+          "systemMessage": "=# Role: 小红书内容创作专家\n\n## Profile\n- language: 汉语 (中文)\n- description: 精通小红书平台特性、用户偏好及内容创作规范，能够根据给定主题和要求，产出高质量、高互动、易于传播的图文内容大纲。\n- background: 深入研究小红书爆款内容逻辑，熟知时尚、美妆、美食、旅行、生活方式等多个热门领域的创作趋势，拥有丰富的实战经验。\n- personality: 热情、富有创意、注重细节、善于捕捉流行元素、乐于分享实用知识，并能够以亲切的口吻进行表达。\n- expertise: 小红书内容策划、文案撰写、视觉引导、用户互动策略、话题标签优化、内容数据分析。\n- target_audience: 希望在小红书上获得更多曝光、粉丝和互动的个人创作者、品牌方、市场营销人员，以及寻求实用生活技巧和知识的普通用户。\n\n## Skills\n\n1. 内容策划与结构设计\n   - 主题拆解: 将复杂主题拆解为易于理解、适合小红书图文展示的多个模块或步骤。\n   - 页面布局规划: 根据小红书多图模式特点，合理规划每页内容的承载量，确保信息简洁且具视觉冲击力。\n   - 爆款标题与封面设计: 创作吸引眼球、激发点击欲的标题和副标题，并提供具引导性的封面背景建议。\n   - 实用性提炼: 深入挖掘内容的核心实用价值和用户痛点，将其转化为用户可操作的信息、解决方案或有益经验。\n\n2. 文案撰写与风格塑造\n   - 小红书风格文案: 运用亲切、有趣、实用、分享式的语言风格，营造轻松愉快的阅读氛围。\n   - 情绪价值传递: 通过文字和内容引导，激发用户共鸣、好奇心和分享欲，鼓励互动。\n   - Emoji与符号运用: 恰当、自然地使用Emoji和特殊符号，增强内容活泼感、可读性与情感表达。\n   - 行动呼吁设计: 在内容结尾设置明确、有效的总结或行动呼吁，引导用户评论、点赞、收藏或尝试。\n\n3. 视觉与交互引导\n   - 配图建议: 为每一页内容提供具体的、富有创意且高度匹配的配图建议，确保视觉吸引力。\n   - 关键信息突出: 利用排版、字体变化、Emoji或符号等方式，清晰突出每页的核心信息和重要提示。\n   - 互动元素设计: 思考如何在内容中融入提问、投票、测试等互动元素，增加用户参与感和内容停留时间。\n   - 标题副标题创意: 创作高度相关、吸引点击且符合小红书用户搜索习惯的标题和副标题。\n\n## Rules\n\n1. 内容创作基本原则：\n   - 用户需求优先: 始终以目标用户的小红书使用习惯和信息获取需求为核心进行内容设计。\n   - 原创性和价值性: 确保内容具有实用价值，能解决用户实际问题或提供新颖有用的信息。\n   - 风格统一性: 保持小红书特有的亲切、有趣、实用、分享的语言风格，并尊重用户特定的语言偏好。\n   - 可操作性与具体性: 提供的内容建议应具体、详细，足以指导图片和文字的实际制作，避免模糊不清的表述。\n\n2. 小红书平台规范：\n   - 页数控制: 内容页数需控制在 3-6 页（包括封面），若用户有明确要求，可在 3-10 页范围内适当调整。\n   - 封面吸引力: 第一页必须是吸引人的封面/标题页，包含标题和副标题，并提供具象化的背景建议。\n   - 简洁性与视觉化: 每页内容应简洁有力，适合配图展示，避免大段文字堆砌，侧重视觉引导。\n   - 禁止违规内容: 严禁创作任何违反小红书社区规范或中国法律法规的内容，确保合规性。\n\n3. 输出与反馈机制：\n   - 严格遵循输出格式: 必须严格使用 `<page>` 标签作为强制性页面分隔符，并准确标记页面类型 `[封面]`、`[内容]`、`[总结]`\n   - 避免冲突符号: 严禁在内容描述中使用 `|` 竖线符号，以避免与 Markdown 表格格式发生冲突。\n   - 细节具体化: 每页内容描述要足够具体、详细，足以指导图片内容和具体文字文案的生成，而非泛泛而谈。\n   - 语言偏好尊重: 如果用户在要求中指定了某种特定语言风格喜好，或是否使用emoji等，则以客户的明确要求为准，灵活调整。\n\n## Workflows\n\n- 目标: 根据用户提供的主题和具体要求，生成一个符合小红书平台特性和用户偏好的高质量、高互动图文内容大纲。\n- 步骤 1: **深入理解并分析用户要求**: 仔细阅读用户提供的“REQUEST”及其相关说明，明确核心主题、目标受众、预期页数、特定语言风格（如使用emoji）等所有具体要求。\n- 步骤 2: **构思整体内容框架**: 基于主题，规划图文大纲的整体结构，包括一个吸引人的封面页、符合页数要求的核心内容页（将主题拆解为多个易于理解和图文结合的步骤或要点），以及一个有力的总结或行动呼吁页。\n- 步骤 3: **细化每页内容**:\n    - **封面页**: 创作具有爆款潜质的标题和副标题，并为封面图片提供具体的背景和场景建议。\n    - **内容页**: 为每一页撰写简洁有力、富有小红书风格的文字描述，突出实用价值，并提供明确、详细且具有创意的配图建议。确保信息易于消化，并适当使用Emoji增加趣味性。\n    - **总结页**: 提炼核心信息，设计引发互动或引导用户行为的总结语和行动呼吁。\n- 步骤 4: **格式化输出与自检**: 严格按照 OutputFormat 中定义的格式要求，使用 `<page>` 标签分割页面，并正确标记页面类型。进行内容自检，确保内容专业、完整、结构清晰，所有要求均已满足，且无格式冲突。\n- 预期结果: 输出一个可以直接用于小红书内容制作的图文大纲，包含详细的页面内容描述和配图建议，完全符合用户要求和平台规范，并具有高互动和传播潜力。\n\n## OutputFormat\n\n1. 内容结构化格式：\n   - format: markdown\n   - structure: 采用页码分割 `<page>` 和页面类型 `[封面] / [内容] / [总结]` 标记的层级结构。\n   - style: 小红书分享式、亲和、有活力、实用，可根据用户要求适当使用Emoji。\n   - special_requirements: 每页内容描述应足够详细，指导后续的图片和文字创作，避免抽象概括。\n\n2. 格式规范：\n   - indentation: 内容行自然换行，无强制性缩进要求。列表项使用 `•` 或 `✅` 等符号。\n   - sections: 每一页的内容都被视为一个独立的部分，通过唯一的 `<page>` 标签进行明确分隔。\n   - highlighting: 标题和关键信息可通过 Emoji、加粗等方式进行视觉强调，但在内容中避免Markdown的标题符号（#）。\n\n3. 验证规则：\n   - validation: 严格检查是否包含 `<page>` 分隔符，页面类型标记 `[封面]`、`[内容]`、`[总结]` 是否正确且位于每页首行。总页数是否在规定范围内（3-6页，或用户指定范围）。\n   - constraints: 严禁在内容描述中使用 `|` 竖线符号；封面页必须包含标题、副标题和背景建议；所有内容页都应有具体内容描述和配图建议。\n   - error_handling: 如果检测到格式不符、内容缺失或违反特定规则，应进行内部修正以满足所有要求，确保输出的完整性和正确性。\n\n4. 示例说明：\n   1. 示例1：\n      - 标题: 5分钟学会手冲咖啡☕\n      - 格式类型: markdown\n      - 说明: 展示了手冲咖啡教程的完整大纲，包含封面、分步内容和总结，配图建议详细。\n      - 示例内容: |\n          [封面]\n          标题：5分钟学会手冲咖啡☕\n          副标题：新手也能做出咖啡店的味道\n          背景：温馨的咖啡场景，一个家庭布局的咖啡角\n\n          <page>\n          [内容][第一页]\n          第一步：准备器具\n\n          必备工具：\n          • 手冲壶（细嘴壶）\n          • 滤杯和滤纸\n          • 咖啡豆 15g\n          • 热水 250ml（92-96℃）\n          • 磨豆机\n          • 电子秤\n\n          配图建议：整齐摆放的咖啡器具\n\n          <page>\n\n          [内容][第二页]\n          第二步：研磨咖啡豆\n\n          研磨粗细度：中细研磨（像细砂糖）\n          重量：15克\n          新鲜度：建议现磨现冲\n\n          小贴士💡：\n          咖啡豆最好是烘焙后2周内的\n          研磨后要在15分钟内冲泡完成\n\n          配图建议：研磨咖啡豆的特写\n\n          <page>\n\n          [内容][第三页]\n          第三步：闷蒸\n\n          注水量：30ml（2倍咖啡粉重量）\n          时间：30秒\n          手法：从中心向外螺旋注水\n\n          关键点⚠️：\n          让所有咖啡粉都湿润\n          不要注水太快\n\n          配图建议：手冲壶注水的过程\n\n          <page>\n\n          [内容][第四页]\n          第四步：分段萃取\n\n          第二次注水：到120ml，用时1分钟\n          第三次注水：到250ml，用时1分30秒\n          总时间：2-2.5分钟\n\n          配图建议：完整的冲泡过程\n\n          <page>\n\n          [总结]\n          完成！享受你的手冲咖啡✨\n\n          记住三个关键：\n          ✅ 水温 92-96℃\n          ✅ 粉水比 1:15\n          ✅ 总时间 2-2.5分钟\n\n          新手提示：\n          前几次可能不完美\n          多练习就会越来越好\n          享受过程最重要！\n\n          配图建议：一杯完成的手冲咖啡，温暖的场景\n\n   2. 示例2：\n      - 标题: 夏日清爽穿搭公式☀️\n      - 格式类型: markdown\n      - 说明: 展示了时尚穿搭主题的大纲，强调搭配技巧和实用性。\n      - 示例内容: |\n          [封面]\n          标题：夏日清爽穿搭公式☀️显瘦又时髦！\n          副标题：告别臃肿，轻松打造高回头率look\n          背景：阳光明媚的街头，时尚女孩自信走过\n\n          <page>\n          [内容][第一页]\n          公式一：Crop Top + 高腰裤 = 大长腿制造机\n\n          搭配要点：\n          • 上短下长原则，拉高腰线\n          • Crop Top选择透气棉麻材质\n          • 高腰裤可以是阔腿裤、直筒裤，修饰腿型\n\n          配图建议：模特穿着Crop Top搭配高腰阔腿裤，侧身展示大长腿效果。\n\n          <page>\n          [内容][第二页]\n          公式二：连衣裙 + 编织包 = 度假风情秒get！\n\n          搭配要点：\n          • 连衣裙选择轻薄飘逸的面料，如雪纺、棉麻\n          • 配饰选择草帽、墨镜，增加度假氛围\n          • 编织包是点睛之笔，提升整体质感\n\n          配图建议：沙滩或海边背景，女孩身穿碎花连衣裙，手提编织包。\n\n          <page>\n          [内容][第三页]\n          公式三：衬衫裙 + 凉鞋 = 慵懒又不失精致\n\n          搭配要点：\n          • 衬衫裙选择宽松版型，舒适度满分\n          • 解开几颗扣子制造V领效果，修饰颈部线条\n          • 搭配简约平底凉鞋或一字带高跟鞋，增添休闲感\n\n          配图建议：咖啡店窗边，女孩穿着白色衬衫裙，随意地翻阅杂志。\n\n          <page>\n          [总结]\n          夏日穿搭小秘诀，你get了吗？\n\n          ✨记住这三点，轻松变身时尚达人：\n          1. 善用“上短下长”调整比例\n          2. 配饰是提升风格的关键\n          3. 舒适感永远是第一位！\n\n          评论区告诉我你最爱哪个搭配公式吧！👇\n\n          配图建议：多套夏日穿搭的拼贴图，展示不同风格。\n\n## Initialization\n作为小红书内容创作专家，你必须遵守上述Rules，按照Workflows执行任务，并按照OutputFormat输出。\n如果传入的某个要求为空，则按照整体情况自行补充，例如核心卖点为空，则自行联网查询产品的核心卖点进行补充"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        192,
+        1888
+      ],
+      "id": "3f58fe7c-5ea4-47db-9f8b-47eca9402989",
+      "name": "Outline Agent"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "be22a7c5-0e3b-4f45-86e2-9499072319cf",
+                    "leftValue": "={{ $('启动').item.json.body.platform }}",
+                    "rightValue": "=xiaohongshu",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "小红书"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('启动').item.json.body.platform }}",
+                    "rightValue": "douyin",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a387d01a-4dc0-4b33-ad1b-35d7cad71a86"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "抖音"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -1216,
+        2096
+      ],
+      "id": "69ac7b50-1ca2-44c9-9cd3-c70c37537345",
+      "name": "Router"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5e85389d-3970-4167-92c7-95192d7d1f15",
+              "name": "body.params['主题/产品']",
+              "value": "={{ $('启动').item.json.body.params['主题/产品'] }}",
+              "type": "string"
+            },
+            {
+              "id": "f0d6a32c-6ee5-439b-8246-41ed1370aa98",
+              "name": "body.params['目标人群']",
+              "value": "={{ $('启动').item.json.body.params['目标人群'] }}",
+              "type": "string"
+            },
+            {
+              "id": "2b705026-2f57-43d0-adde-33235a23e1eb",
+              "name": "body.params['文案风格']",
+              "value": "={{ $('启动').item.json.body.params['文案风格'] }}",
+              "type": "string"
+            },
+            {
+              "id": "654dae3d-bd4c-47a0-bfa2-3b388cdc7fa8",
+              "name": "body.params['核心卖点']",
+              "value": "={{ $('启动').item.json.body.params['核心卖点'] }}",
+              "type": "string"
+            },
+            {
+              "id": "73330b56-1a2b-4048-af56-a78c20b529a7",
+              "name": "body.params['发布目的']",
+              "value": "={{ $('启动').item.json.body.params['发布目的'] }}",
+              "type": "string"
+            },
+            {
+              "id": "7b171c56-3ae9-4a2e-9919-76013c760c50",
+              "name": "body.params['字数范围']",
+              "value": "={{ $('启动').item.json.body.params['字数范围'] }}",
+              "type": "string"
+            },
+            {
+              "id": "4736ed43-71c4-4618-84f4-15df76a9b0c7",
+              "name": "body.params['图片张数']",
+              "value": "={{ $('启动').item.json.body.params['图片张数'] }}",
+              "type": "string"
+            },
+            {
+              "id": "ff346457-6899-4d99-bf3d-56f3207752e3",
+              "name": "body.params['标题风格']",
+              "value": "={{ $('启动').item.json.body.params['标题风格'] }}",
+              "type": "string"
+            },
+            {
+              "id": "1b44ebe6-cae4-481a-a9a6-9213468f5aa7",
+              "name": "body.params['标签/关键词']",
+              "value": "={{ $('启动').item.json.body.params['标签/关键词'] }}",
+              "type": "string"
+            },
+            {
+              "id": "35b2d3f2-c2a6-46c1-82ad-5a8c3c0c8f4a",
+              "name": "body.params['补充说明']",
+              "value": "={{ $('启动').item.json.body.params['补充说明'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -336,
+        1872
+      ],
+      "id": "85e1d7f9-556a-4156-8092-a031279808b3",
+      "name": "Outline Input"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        144,
+        2144
+      ],
+      "id": "0376d5ea-e85e-4ba1-9c91-5bc1845d887d",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "GwjoROLrlJScPtCH",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiResult = $input.first().json.output || $input.first().json;\nconst text = typeof aiResult === 'string' ? aiResult : JSON.stringify(aiResult);\n\n// 获取启动时生成的 taskId（从第一个 Code 节点）\nconst taskId = $('Code in JavaScript').item.json.taskId;\n\n// 更新静态数据中的任务状态\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks) staticData.tasks = {};\n\nstaticData.tasks[taskId] = {\n  ...staticData.tasks[taskId],\n  status: 'waiting_user_feedback',\n  stepName: 'draft',\n  message: '初稿已生成，请预览并确认或提出修改意见',\n  preview: {\n    text: text,\n    images: [],\n    videos: []\n  },\n  previewHistory: [\n    { version: 1, label: '初稿', text: text, timestamp: Date.now() }\n  ],\n  allowRevise: true,\n  allowConfirm: true,\n  history: [\n    { role: 'system', type: 'status', content: '✅ AI 已生成初稿', timestamp: Date.now() }\n  ]\n};\n\n// 这个节点不再需要触发 Respond，直接输出数据即可\nreturn {\n  json: {\n    taskId: taskId,\n    status: 'done'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        1872
+      ],
+      "id": "54be6c46-0c91-4369-b18c-3e7646aab4ac",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "47680a7b-5bf7-4d4c-b18c-eb4aaa98c0a8",
+              "name": "xg",
+              "value": "={{ $('修改').item.json.body.feedback }}",
+              "type": "string"
+            },
+            {
+              "id": "7090f9dd-69bf-472c-875c-f60f9ee88a0f",
+              "name": "taskid",
+              "value": "={{ $json.taskId }}",
+              "type": "string"
+            },
+            {
+              "id": "80e5d961-86d4-44c6-9626-8c2558115789",
+              "name": "body.previousText",
+              "value": "={{ $json.prompt }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -384,
+        48
+      ],
+      "id": "3f78d6ea-075c-4d2b-b850-15f4d2d1041a",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiText = $input.first().json.output || $input.first().json.text ||\n  JSON.stringify($input.first().json);\nconst action = $('codes').item.json.action;\nconst taskId = $('codes').item.json.taskId;\nconst previousText = $('codes').item.json.previousText || '';\n\nconst isConfirm = action === 'confirm';\n\n// 保存结果到静态数据\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks) staticData.tasks = {};\n\nstaticData.tasks[taskId] = {\n  ...staticData.tasks[taskId],\n  status: isConfirm ? 'completed' : 'waiting_user_feedback',\n  stepName: isConfirm ? 'final' : 'draft',\n  message: isConfirm ? '最终版已生成！' : '已根据修改意见重新生成，请再次确认',\n  preview: {\n    text: aiText,\n    images: [],\n    videos: []\n  },\n  allowRevise: isConfirm ? false : true,\n  allowConfirm: isConfirm ? false : true,\n  history: [\n    {\n      role: 'system',\n      type: 'status',\n      content: isConfirm ? '最终版已生成' : '已根据修改意见重新生成',\n      timestamp: Date.now()\n    }\n  ]\n};\n\n// 同时追加版本历史\nif (!isConfirm && aiText) {\n  const existingTask = staticData.tasks[taskId];\n  const history = existingTask.previewHistory || [];\n  history.push({\n    version: history.length + 1,\n    label: '修改版本',\n    text: aiText,\n    timestamp: Date.now()\n  });\n  staticData.tasks[taskId].previewHistory = history;\n}\n\nreturn { json: { taskId: taskId, status: 'done' } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        192
+      ],
+      "id": "f3aadd7e-b1ba-4fc4-8af0-c812eee36e0a",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b8e29985-2778-4482-8815-a51760807802",
+              "name": "prompt",
+              "value": "={{ $('codes').item.json.prompt }}",
+              "type": "string"
+            },
+            {
+              "id": "12269ef1-eb0a-41b4-bc0d-04cdef473c9c",
+              "name": "action",
+              "value": "={{ $('codes').item.json.action }}",
+              "type": "string"
+            },
+            {
+              "id": "fd104fe9-33d6-40b5-b21b-ed1f39675939",
+              "name": "taskId",
+              "value": "={{ $('codes').item.json.taskId }}",
+              "type": "string"
+            },
+            {
+              "id": "50a9a429-c1ae-4ead-8bb6-ef5a7e8d97f2",
+              "name": "previousText",
+              "value": "={{ $('codes').item.json.previousText }}",
+              "type": "string"
+            },
+            {
+              "id": "bd131833-bee3-4d50-a44a-4f762b4139e8",
+              "name": "feedback",
+              "value": "={{ $('codes').item.json.feedback }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1008,
+        640
+      ],
+      "id": "6235f954-7a87-4719-a501-df51f528b3fd",
+      "name": "Outline Input1"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        272
+      ],
+      "id": "6b854143-e049-472f-baa4-ad0a54a08136",
+      "name": "Think1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.previousText }}",
+        "options": {
+          "systemMessage": "=# Role: 小红书内容创作专家\n\n## Profile\n- language: 汉语 (中文)\n- description: 精通小红书平台特性、用户偏好及内容创作规范，能够根据给定主题和要求，产出高质量、高互动、易于传播的图文内容大纲。\n- background: 深入研究小红书爆款内容逻辑，熟知时尚、美妆、美食、旅行、生活方式等多个热门领域的创作趋势，拥有丰富的实战经验。\n- personality: 热情、富有创意、注重细节、善于捕捉流行元素、乐于分享实用知识，并能够以亲切的口吻进行表达。\n- expertise: 小红书内容策划、文案撰写、视觉引导、用户互动策略、话题标签优化、内容数据分析。\n- target_audience: 希望在小红书上获得更多曝光、粉丝和互动的个人创作者、品牌方、市场营销人员，以及寻求实用生活技巧和知识的普通用户。\n\n## Skills\n\n1. 内容策划与结构设计\n   - 主题拆解: 将复杂主题拆解为易于理解、适合小红书图文展示的多个模块或步骤。\n   - 页面布局规划: 根据小红书多图模式特点，合理规划每页内容的承载量，确保信息简洁且具视觉冲击力。\n   - 爆款标题与封面设计: 创作吸引眼球、激发点击欲的标题和副标题，并提供具引导性的封面背景建议。\n   - 实用性提炼: 深入挖掘内容的核心实用价值和用户痛点，将其转化为用户可操作的信息、解决方案或有益经验。\n\n2. 文案撰写与风格塑造\n   - 小红书风格文案: 运用亲切、有趣、实用、分享式的语言风格，营造轻松愉快的阅读氛围。\n   - 情绪价值传递: 通过文字和内容引导，激发用户共鸣、好奇心和分享欲，鼓励互动。\n   - Emoji与符号运用: 恰当、自然地使用Emoji和特殊符号，增强内容活泼感、可读性与情感表达。\n   - 行动呼吁设计: 在内容结尾设置明确、有效的总结或行动呼吁，引导用户评论、点赞、收藏或尝试。\n\n3. 视觉与交互引导\n   - 配图建议: 为每一页内容提供具体的、富有创意且高度匹配的配图建议，确保视觉吸引力。\n   - 关键信息突出: 利用排版、字体变化、Emoji或符号等方式，清晰突出每页的核心信息和重要提示。\n   - 互动元素设计: 思考如何在内容中融入提问、投票、测试等互动元素，增加用户参与感和内容停留时间。\n   - 标题副标题创意: 创作高度相关、吸引点击且符合小红书用户搜索习惯的标题和副标题。\n\n## Rules\n\n1. 内容创作基本原则：\n   - 用户需求优先: 始终以目标用户的小红书使用习惯和信息获取需求为核心进行内容设计。\n   - 原创性和价值性: 确保内容具有实用价值，能解决用户实际问题或提供新颖有用的信息。\n   - 风格统一性: 保持小红书特有的亲切、有趣、实用、分享的语言风格，并尊重用户特定的语言偏好。\n   - 可操作性与具体性: 提供的内容建议应具体、详细，足以指导图片和文字的实际制作，避免模糊不清的表述。\n\n2. 小红书平台规范：\n   - 页数控制: 内容页数需控制在 3-6 页（包括封面），若用户有明确要求，可在 3-10 页范围内适当调整。\n   - 封面吸引力: 第一页必须是吸引人的封面/标题页，包含标题和副标题，并提供具象化的背景建议。\n   - 简洁性与视觉化: 每页内容应简洁有力，适合配图展示，避免大段文字堆砌，侧重视觉引导。\n   - 禁止违规内容: 严禁创作任何违反小红书社区规范或中国法律法规的内容，确保合规性。\n\n3. 输出与反馈机制：\n   - 严格遵循输出格式: 必须严格使用 `<page>` 标签作为强制性页面分隔符，并准确标记页面类型 `[封面]`、`[内容]`、`[总结]`\n   - 避免冲突符号: 严禁在内容描述中使用 `|` 竖线符号，以避免与 Markdown 表格格式发生冲突。\n   - 细节具体化: 每页内容描述要足够具体、详细，足以指导图片内容和具体文字文案的生成，而非泛泛而谈。\n   - 语言偏好尊重: 如果用户在要求中指定了某种特定语言风格喜好，或是否使用emoji等，则以客户的明确要求为准，灵活调整。\n\n## Workflows\n\n- 目标: 根据用户提供的主题和具体要求，生成一个符合小红书平台特性和用户偏好的高质量、高互动图文内容大纲。\n- 步骤 1: **深入理解并分析用户要求**: 仔细阅读用户提供的“REQUEST”及其相关说明，明确核心主题、目标受众、预期页数、特定语言风格（如使用emoji）等所有具体要求。\n- 步骤 2: **构思整体内容框架**: 基于主题，规划图文大纲的整体结构，包括一个吸引人的封面页、符合页数要求的核心内容页（将主题拆解为多个易于理解和图文结合的步骤或要点），以及一个有力的总结或行动呼吁页。\n- 步骤 3: **细化每页内容**:\n    - **封面页**: 创作具有爆款潜质的标题和副标题，并为封面图片提供具体的背景和场景建议。\n    - **内容页**: 为每一页撰写简洁有力、富有小红书风格的文字描述，突出实用价值，并提供明确、详细且具有创意的配图建议。确保信息易于消化，并适当使用Emoji增加趣味性。\n    - **总结页**: 提炼核心信息，设计引发互动或引导用户行为的总结语和行动呼吁。\n- 步骤 4: **格式化输出与自检**: 严格按照 OutputFormat 中定义的格式要求，使用 `<page>` 标签分割页面，并正确标记页面类型。进行内容自检，确保内容专业、完整、结构清晰，所有要求均已满足，且无格式冲突。\n- 预期结果: 输出一个可以直接用于小红书内容制作的图文大纲，包含详细的页面内容描述和配图建议，完全符合用户要求和平台规范，并具有高互动和传播潜力。\n\n## OutputFormat\n\n1. 内容结构化格式：\n   - format: markdown\n   - structure: 采用页码分割 `<page>` 和页面类型 `[封面] / [内容] / [总结]` 标记的层级结构。\n   - style: 小红书分享式、亲和、有活力、实用，可根据用户要求适当使用Emoji。\n   - special_requirements: 每页内容描述应足够详细，指导后续的图片和文字创作，避免抽象概括。\n\n2. 格式规范：\n   - indentation: 内容行自然换行，无强制性缩进要求。列表项使用 `•` 或 `✅` 等符号。\n   - sections: 每一页的内容都被视为一个独立的部分，通过唯一的 `<page>` 标签进行明确分隔。\n   - highlighting: 标题和关键信息可通过 Emoji、加粗等方式进行视觉强调，但在内容中避免Markdown的标题符号（#）。\n\n3. 验证规则：\n   - validation: 严格检查是否包含 `<page>` 分隔符，页面类型标记 `[封面]`、`[内容]`、`[总结]` 是否正确且位于每页首行。总页数是否在规定范围内（3-6页，或用户指定范围）。\n   - constraints: 严禁在内容描述中使用 `|` 竖线符号；封面页必须包含标题、副标题和背景建议；所有内容页都应有具体内容描述和配图建议。\n   - error_handling: 如果检测到格式不符、内容缺失或违反特定规则，应进行内部修正以满足所有要求，确保输出的完整性和正确性。\n\n4. 示例说明：\n   1. 示例1：\n      - 标题: 5分钟学会手冲咖啡☕\n      - 格式类型: markdown\n      - 说明: 展示了手冲咖啡教程的完整大纲，包含封面、分步内容和总结，配图建议详细。\n      - 示例内容: |\n          [封面]\n          标题：5分钟学会手冲咖啡☕\n          副标题：新手也能做出咖啡店的味道\n          背景：温馨的咖啡场景，一个家庭布局的咖啡角\n\n          <page>\n          [内容][第一页]\n          第一步：准备器具\n\n          必备工具：\n          • 手冲壶（细嘴壶）\n          • 滤杯和滤纸\n          • 咖啡豆 15g\n          • 热水 250ml（92-96℃）\n          • 磨豆机\n          • 电子秤\n\n          配图建议：整齐摆放的咖啡器具\n\n          <page>\n\n          [内容][第二页]\n          第二步：研磨咖啡豆\n\n          研磨粗细度：中细研磨（像细砂糖）\n          重量：15克\n          新鲜度：建议现磨现冲\n\n          小贴士💡：\n          咖啡豆最好是烘焙后2周内的\n          研磨后要在15分钟内冲泡完成\n\n          配图建议：研磨咖啡豆的特写\n\n          <page>\n\n          [内容][第三页]\n          第三步：闷蒸\n\n          注水量：30ml（2倍咖啡粉重量）\n          时间：30秒\n          手法：从中心向外螺旋注水\n\n          关键点⚠️：\n          让所有咖啡粉都湿润\n          不要注水太快\n\n          配图建议：手冲壶注水的过程\n\n          <page>\n\n          [内容][第四页]\n          第四步：分段萃取\n\n          第二次注水：到120ml，用时1分钟\n          第三次注水：到250ml，用时1分30秒\n          总时间：2-2.5分钟\n\n          配图建议：完整的冲泡过程\n\n          <page>\n\n          [总结]\n          完成！享受你的手冲咖啡✨\n\n          记住三个关键：\n          ✅ 水温 92-96℃\n          ✅ 粉水比 1:15\n          ✅ 总时间 2-2.5分钟\n\n          新手提示：\n          前几次可能不完美\n          多练习就会越来越好\n          享受过程最重要！\n\n          配图建议：一杯完成的手冲咖啡，温暖的场景\n\n   2. 示例2：\n      - 标题: 夏日清爽穿搭公式☀️\n      - 格式类型: markdown\n      - 说明: 展示了时尚穿搭主题的大纲，强调搭配技巧和实用性。\n      - 示例内容: |\n          [封面]\n          标题：夏日清爽穿搭公式☀️显瘦又时髦！\n          副标题：告别臃肿，轻松打造高回头率look\n          背景：阳光明媚的街头，时尚女孩自信走过\n\n          <page>\n          [内容][第一页]\n          公式一：Crop Top + 高腰裤 = 大长腿制造机\n\n          搭配要点：\n          • 上短下长原则，拉高腰线\n          • Crop Top选择透气棉麻材质\n          • 高腰裤可以是阔腿裤、直筒裤，修饰腿型\n\n          配图建议：模特穿着Crop Top搭配高腰阔腿裤，侧身展示大长腿效果。\n\n          <page>\n          [内容][第二页]\n          公式二：连衣裙 + 编织包 = 度假风情秒get！\n\n          搭配要点：\n          • 连衣裙选择轻薄飘逸的面料，如雪纺、棉麻\n          • 配饰选择草帽、墨镜，增加度假氛围\n          • 编织包是点睛之笔，提升整体质感\n\n          配图建议：沙滩或海边背景，女孩身穿碎花连衣裙，手提编织包。\n\n          <page>\n          [内容][第三页]\n          公式三：衬衫裙 + 凉鞋 = 慵懒又不失精致\n\n          搭配要点：\n          • 衬衫裙选择宽松版型，舒适度满分\n          • 解开几颗扣子制造V领效果，修饰颈部线条\n          • 搭配简约平底凉鞋或一字带高跟鞋，增添休闲感\n\n          配图建议：咖啡店窗边，女孩穿着白色衬衫裙，随意地翻阅杂志。\n\n          <page>\n          [总结]\n          夏日穿搭小秘诀，你get了吗？\n\n          ✨记住这三点，轻松变身时尚达人：\n          1. 善用“上短下长”调整比例\n          2. 配饰是提升风格的关键\n          3. 舒适感永远是第一位！\n\n          评论区告诉我你最爱哪个搭配公式吧！👇\n\n          配图建议：多套夏日穿搭的拼贴图，展示不同风格。\n\n## Initialization\n作为小红书内容创作专家，你必须遵守上述Rules，按照Workflows执行任务，并按照OutputFormat输出。\n如果传入的某个要求为空，则按照整体情况自行补充，例如核心卖点为空，则自行联网查询产品的核心卖点进行补充"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "872244ef-2eaf-4b1c-973a-722328862f2e",
+      "name": "Outline Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        -176,
+        224
+      ],
+      "id": "8ad29ade-9ab9-4bee-a2d9-15cc29daa8cb",
+      "name": "DeepSeek Chat Model1",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "GwjoROLrlJScPtCH",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "revise",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "98e2fb42-bbd8-42d3-aef5-3bcc59276e2b"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "修改"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4d2897a0-c74d-4052-8aea-cc9013729733",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "generate_images",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "确认"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "fc68fea5-68ee-4788-9d7a-72221a5f0561",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "approve_image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "通过图片"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "3e70f572-3bb3-4f4e-94d8-0c099afc9e4b",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "reject_image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "拒绝图片"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -752,
+        768
+      ],
+      "id": "7e177933-ff8b-4509-b78a-60ca25b47984",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.taskid }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        64,
+        288
+      ],
+      "id": "54240398-02d4-48a3-a794-8df76f69ec0d",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst action = body.action;\nconst feedback = body.feedback;\nconst previousText = body.previousText;\nconst taskId = body.taskId;\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks) staticData.tasks = {};\n\nlet prompt = '';\n\nif (action === 'revise') {\n  if (previousText) {\n    prompt = '以下是你之前生成的初稿：\\n\\n' + previousText + '\\n\\n用户提出了修改意见：' +\n      feedback + '\\n\\n请根据修改意见重新生成完整文案，保持原有格式和结构。';\n  } else {\n    prompt = '用户对你上一版的文案提出了新的修改意见：' + feedback +\n      '\\n\\n请根据修改意见重新生成完整文案。';\n  }\n  // 更新状态为\"处理中\"\n  if (staticData.tasks[taskId]) {\n    staticData.tasks[taskId] = {\n      ...staticData.tasks[taskId],\n      status: 'processing',\n      stepName: '',\n      message: '修改意见已接收，重新生成中...',\n      allowRevise: false,\n      allowConfirm: false\n    };\n  }\n} else if (action === 'confirm') {\n  prompt = '用户已确认当前文案，请直接原样输出最终完整版文案，不做任何修改。';\n  if (staticData.tasks[taskId]) {\n    staticData.tasks[taskId] = {\n      ...staticData.tasks[taskId],\n      status: 'processing',\n      stepName: '',\n      message: '确认成功，正在生成配图...',\n      allowRevise: false,\n      allowConfirm: false\n    };\n  }\n} else if (action === 'generate_images') {\n    // 只更新状态，不构建 prompt\n    if (staticData.tasks[taskId]) {\n      staticData.tasks[taskId] = {\n        ...staticData.tasks[taskId],\n        status: 'processing',\n        stepName: '',\n        message: '正在生成第 1 张图片...',\n        allowRevise: false,\n        allowConfirm: false,\n      };\n    }\n  }\n\nreturn {\n  json: {\n    prompt: prompt,\n    action: action,\n    taskId: taskId,\n    previousText: previousText || '',\n    feedback: feedback || ''\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        624
+      ],
+      "id": "3b2d4431-8943-43f9-a8b3-1507c95ef671",
+      "name": "codes"
+    },
+    {
+      "parameters": {
+        "jsCode": "const previousText = $('codes').item.json.previousText || '';\nconst taskId = $('codes').item.json.taskId || '';\n\n// 清理 AI 文本，找到正式内容\nlet cleanText = previousText;\nconst coverStart = cleanText.indexOf('[封面]');\nif (coverStart > 0) cleanText = cleanText.substring(coverStart);\n\n// 按 <page> 分割\nconst sections = cleanText.split('<page>').map(s => s.trim()).filter(s => s);\n\n// 解析每页\nconst typeMap = { '封面': 'cover', '内容': 'content', '总结': 'summary' };\nconst pages = sections.map((content, index) => {\n  const typeMatch = content.match(/^\\[(\\S+?)\\]/);\n  const type = typeMatch ? (typeMap[typeMatch[1]] || 'content') : 'content';\n  return { index, type, content };\n});\n\nconst coverPage = pages.find(p => p.type === 'cover') || pages[0];\nconst otherPages = pages.filter(p => p.type !== 'cover');\n\n// ★ 保存所有页面到静态数据，供后续逐张生成使用\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks) staticData.tasks = {};\nif (!staticData.tasks[taskId]) staticData.tasks[taskId] = {};\n\nstaticData.tasks[taskId] = {\n  ...staticData.tasks[taskId],\n  status: 'processing',\n  message: '正在生成第 1 张图片...',\n  allPages: pages,          // 所有页面\n  outline: cleanText,\n  userRequest: '根据文案内容生成配图',\n  previousText: previousText,\n  xhsImages: [],            // 已生成的图片列表（逐步填充）\n  currentImageIndex: 0,\n  totalImages: pages.length\n};\n\n// 只返回封面页供下一步生成\nreturn {\n  json: {\n    taskId: taskId,\n    previousText: previousText,\n    outline: cleanText,\n    userRequest: '根据文案内容生成配图',\n    coverPage: coverPage,\n    otherPages: otherPages,\n    pageCount: pages.length\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        640
+      ],
+      "id": "2f908c16-15c1-46d6-afbc-ad3dc44f7107",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1552,
+        544
+      ],
+      "id": "9197f9fe-ec33-4298-958c-7f6f16a5a86c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "otherPages",
+        "options": {
+          "destinationFieldName": "page"
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        544
+      ],
+      "id": "b2c3a6ca-eff8-480b-b921-7a9d87a2df62",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2272,
+        544
+      ],
+      "id": "2e78a7f3-4229-41f4-ba5f-21a510644f3b",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PTXWlunQCfExBluS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PTXWlunQCfExBluS",
+          "cachedResultName": "小红书生图"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "page": "={{ $json.page.page }}",
+            "outline": "={{ $('Code in JavaScript1').item.json.outline }}",
+            "userRequest": "={{ $('Code in JavaScript1').item.json.userRequest }}",
+            "coverImage": "={{ $json.coverImage }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "page",
+              "displayName": "page",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "outline",
+              "displayName": "outline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "userRequest",
+              "displayName": "userRequest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "coverImage",
+              "displayName": "coverImage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3136,
+        608
+      ],
+      "id": "8325a5d4-e9e9-47a5-908c-1d0ed50fad46",
+      "name": "Call '小红书生图'1",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "imageUrl",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2864,
+        416
+      ],
+      "id": "3dabd33e-9832-4ff1-b6ca-4c88f2a81739",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PTXWlunQCfExBluS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PTXWlunQCfExBluS",
+          "cachedResultName": "小红书生图"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "page": "={{ $json.coverPage }}",
+            "outline": "={{ $json.outline }}",
+            "userRequest": "={{ $json.userRequest }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "page",
+              "displayName": "page",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "outline",
+              "displayName": "outline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "userRequest",
+              "displayName": "userRequest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "coverImage",
+              "displayName": "coverImage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        496
+      ],
+      "id": "9940c1ff-a1a5-4c54-a887-8dc4a56724dc",
+      "name": "fm",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const outline = $('codes').first().json.outline;\n  const userRequest = $('codes').first().json.userRequest;\n    const coverImage = $('fm').first().json.imageUrl; // 改成实际字段名\n\n  return $input.all().map(function(item) {\n    return {\n      json: {\n        page: item.json,\n        outline: outline,\n        userRequest: userRequest,\n        coverImage: coverImage\n      }\n    };\n  });"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        560
+      ],
+      "id": "8d217178-efaf-4b55-858e-93027aeb5aab",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "jsCode": "var data = $input.first().json.data;\n  var images = data.map(function(item) { return item.imageUrl; }).filter(function(url) { return url; });\n\n  var previousText = $('codes').first().json.previousText || '';\n  var taskId = $('codes').first().json.taskId || '';\n\n  return {\n    json: {\n      success: true,\n      taskId: taskId,\n      status: 'completed',\n      stepName: 'final',\n      message: '最终文案和配图已生成！',\n      preview: {\n        text: previousText,\n        images: images,\n        videos: []\n      },\n      history: [\n        {\n          role: 'system',\n          type: 'status',\n          content: '最终版文案和配图已生成',\n          timestamp: Date.now()\n        }\n      ],\n      allowRevise: false,\n      allowConfirm: false\n    }\n  };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        416
+      ],
+      "id": "e1e43d44-4a8f-44cf-8d6d-d0c956064c11",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3392,
+        432
+      ],
+      "id": "4ebd1176-11d4-4f0a-96df-d006d82903af",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1616,
+        2368
+      ],
+      "id": "c7cf4df7-9895-434d-a99e-a3a89b897fe3",
+      "name": "Respond to Webhook3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskId = $input.first().json.query.taskId;\n\n// 读取全局静态数据（工作流内存）\nconst staticData = $getWorkflowStaticData('global');\n\n// 如果没找到任务（初始化竞态，正常现象，继续轮询）\nif (!staticData.tasks || !staticData.tasks[taskId]) {\n  return {\n    json: {\n      success: true,        // ← 必须是 true，否则前端会误判为失败\n      status: 'processing',\n      message: '任务正在进行中，请稍候...',\n      taskId: taskId\n    }\n  };\n}\n\nconst task = staticData.tasks[taskId];\n\n// 返回完整的任务状态\nreturn {\n  json: {\n    success: true,\n    taskId: taskId,\n    status: task.status || 'processing',\n    stepName: task.stepName || '',\n    message: task.message || '',\n    preview: task.preview || null,\n    previewHistory: task.previewHistory || [],\n    allowRevise: task.allowRevise || false,\n    allowConfirm: task.allowConfirm || false,\n    xhsImages: task.xhsImages || [],\n    currentImageIndex: task.currentImageIndex || 0,\n    history: task.history || []\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1632,
+        1552
+      ],
+      "id": "573e297b-d6f6-4c3a-b5b4-ba4120cdc929",
+      "name": "读取状态"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1424,
+        1552
+      ],
+      "id": "a13232e8-39ab-4fb1-817b-cb8804d08b27",
+      "name": "返回状态"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1264,
+        320
+      ],
+      "id": "55876729-390c-4a67-8b6b-626cc19a93f9",
+      "name": "立即回复修改"
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskId = $('codes').item.json.taskId;\nconst coverImageUrl = $input.first().json.imageUrl || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.tasks || !staticData.tasks[taskId]) {\n  return { json: { taskId, imageUrl: coverImageUrl } };\n}\n\n// 把封面图加入 xhsImages 列表\nconst task = staticData.tasks[taskId];\nconst xhsImages = task.xhsImages || [];\nxhsImages.push({ url: coverImageUrl, status: 'pending', index: 0 });\n\n// 更新状态为「图片审核中」，等待用户对封面图审核\nstaticData.tasks[taskId] = {\n  ...task,\n  status: 'waiting_user_feedback',\n  stepName: 'xhs_image_review',\n  message: '请审核第 1 张图片（封面图）',\n  xhsImages: xhsImages,\n  currentImageIndex: 0\n};\n\nreturn {\n  json: {\n    taskId,\n    imageUrl: coverImageUrl,\n    currentIndex: 0\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        496
+      ],
+      "id": "6e573c9a-d22a-4ef8-97ec-6a28a6bfe69f",
+      "name": "保存封面图"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('codes').item.json;\n// previousText 字段被复用来传递 imageIndex\nconst imageIndex = parseInt(body.previousText || '0');\nconst taskId = body.taskId;\n\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[taskId];\n\nif (!task) {\n  return { json: { taskId, error: '任务不存在' } };\n}\n\n// 把当前图片标记为已通过\nconst xhsImages = [...(task.xhsImages || [])];\nif (xhsImages[imageIndex]) {\n  xhsImages[imageIndex] = { ...xhsImages[imageIndex], status: 'approved' };\n}\n\nconst nextIndex = imageIndex + 1;\nconst totalImages = task.totalImages || (task.allPages ? task.allPages.length : 0);\n\n// 更新已通过的图片状态\nstaticData.tasks[taskId] = {\n  ...task,\n  xhsImages: xhsImages\n};\n\nreturn {\n  json: {\n    taskId,\n    imageIndex,\n    nextIndex,\n    totalImages,\n    hasMore: nextIndex < totalImages,\n    allPages: task.allPages || [],\n    outline: task.outline || '',\n    userRequest: task.userRequest || '根据文案内容生成配图'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        784
+      ],
+      "id": "25309f54-59f5-4d54-bb94-3cff23262725",
+      "name": "处理图片通过"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.hasMore.toString()}}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e8828130-8b21-475c-86cc-daa8735f184c"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "还有图"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1c011e11-9d6a-45e6-9481-a32a1c340321",
+                    "leftValue": "={{$json.hasMore.toString()}}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "全部完成"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        816
+      ],
+      "id": "cd583a03-f547-4e2d-bb5d-e393447d7852",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst nextPage = data.allPages[data.nextIndex];\n\n  // 从 staticData 读取封面图 URL（xhsImages[0]）\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[data.taskId] || {};\nconst coverImage = (task.xhsImages && task.xhsImages[0]) ? task.xhsImages[0].url : '';\n\nreturn {\n  json: {\n    page: nextPage,\n    outline: data.outline,\n    userRequest: data.userRequest,\n    coverImage: coverImage,\n    taskId: data.taskId,\n    nextIndex: data.nextIndex\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        816
+      ],
+      "id": "ebd87672-9f6e-4284-81cb-4b41b34ae46c",
+      "name": "准备下一张"
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $('codes').item.json.action;\nconst taskId = $('codes').item.json.taskId;\n\nreturn {\n  json: {\n    success: true,\n    status: 'processing',\n    message: action === 'confirm' ? '确认成功，正在生成...' : '修改意见已接收，重新生成中...',\n    taskId: taskId\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        480
+      ],
+      "id": "eeb2c906-11ee-4c47-8f39-a7604c00aee4",
+      "name": "构建回复"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PTXWlunQCfExBluS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PTXWlunQCfExBluS",
+          "cachedResultName": "小红书生图"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "page": "={{ $json.page }}",
+            "outline": "={{ $json.outline }}",
+            "userRequest": "={{ $json.userRequest }}",
+            "coverImage": "={{ $json.coverImage }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "page",
+              "displayName": "page",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "outline",
+              "displayName": "outline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "userRequest",
+              "displayName": "userRequest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "coverImage",
+              "displayName": "coverImage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        816
+      ],
+      "id": "6234d1b6-e66c-41a2-a662-26ff711a1d6c",
+      "name": "生成下一张图",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskId = $('准备下一张').item.json.taskId;\nconst nextIndex = $('准备下一张').item.json.nextIndex;\nconst newImageUrl = $input.first().json.imageUrl || '';\n\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[taskId];\n\nconst xhsImages = [...(task.xhsImages || [])];\nxhsImages.push({ url: newImageUrl, status: 'pending', index: nextIndex });\n\nstaticData.tasks[taskId] = {\n  ...task,\n  status: 'waiting_user_feedback',\n  stepName: 'xhs_image_review',\n  message: `请审核第 ${nextIndex + 1} 张图片`,\n  xhsImages: xhsImages,\n  currentImageIndex: nextIndex\n};\n\nreturn { json: { taskId, done: false } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        816
+      ],
+      "id": "416f1489-463f-42c7-9d61-e78b28f6c1d8",
+      "name": "保存新图片"
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskId = $input.first().json.taskId;\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[taskId];\n\nconst allImageUrls = (task.xhsImages || []).map(img => img.url);\n\nstaticData.tasks[taskId] = {\n  ...task,\n  status: 'completed',\n  stepName: 'final',\n  message: '所有图片已生成完成！',\n  preview: {\n    text: task.previousText || '',\n    images: allImageUrls,\n    videos: []\n  },\n  allowRevise: false,\n  allowConfirm: false\n};\n\nreturn { json: { taskId, status: 'completed' } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        976
+      ],
+      "id": "0900e521-229a-4f02-9c02-6cc6724b2c7d",
+      "name": "标记完成"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('codes').item.json;\nconst imageIndex = parseInt(body.previousText || '0');\nconst feedback = body.feedback || '';\nconst taskId = body.taskId;\n\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[taskId];\nif (!task) return { json: { taskId, error: '任务不存在' } };\n\n// 把当前图片标记为拒绝，状态改为处理中\nconst xhsImages = [...(task.xhsImages || [])];\nif (xhsImages[imageIndex]) {\n  xhsImages[imageIndex] = { ...xhsImages[imageIndex], status: 'rejected' };\n}\n\nstaticData.tasks[taskId] = {\n  ...task,\n  status: 'processing',\n  message: `正在根据意见重新生成第 ${imageIndex + 1} 张图片...`,\n  xhsImages: xhsImages\n};\n\nconst targetPage = task.allPages ? task.allPages[imageIndex] : null;\nconst coverImage = (task.xhsImages && task.xhsImages[0]) ? task.xhsImages[0].url : '';\n\nreturn {\n  json: {\n    taskId,\n    imageIndex,\n    feedback,\n    page: targetPage,\n    outline: task.outline || '',\n    userRequest: feedback\n      ? `${task.userRequest || '根据文案内容生成配图'}。修改意见：${feedback}`\n      : (task.userRequest || '根据文案内容生成配图'),\n    coverImage: coverImage\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        976
+      ],
+      "id": "71ebec58-d4db-4d2c-ba0b-9bd2e0f9caae",
+      "name": "处理图片拒绝"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PTXWlunQCfExBluS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PTXWlunQCfExBluS",
+          "cachedResultName": "小红书生图"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "page": "={{ $json.page }}",
+            "outline": "={{ $json.outline }}",
+            "userRequest": "={{ $json.userRequest }}",
+            "coverImage": "={{ $json.coverImage }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "page",
+              "displayName": "page",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object"
+            },
+            {
+              "id": "outline",
+              "displayName": "outline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "userRequest",
+              "displayName": "userRequest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "coverImage",
+              "displayName": "coverImage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -304,
+        1040
+      ],
+      "id": "0bedec7f-9f12-4dd9-899c-57e3895de9bc",
+      "name": "重新生成图",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskId = $('处理图片拒绝').item.json.taskId;\nconst imageIndex = $('处理图片拒绝').item.json.imageIndex;\nconst newImageUrl = $input.first().json.imageUrl || '';\n\nconst staticData = $getWorkflowStaticData('global');\nconst task = staticData.tasks[taskId];\n\nconst xhsImages = [...(task.xhsImages || [])];\nxhsImages[imageIndex] = { url: newImageUrl, status: 'pending', index: imageIndex };\n\nstaticData.tasks[taskId] = {\n  ...task,\n  status: 'waiting_user_feedback',\n  stepName: 'xhs_image_review',\n  message: `第 ${imageIndex + 1} 张图片已重新生成，请再次审核`,\n  xhsImages: xhsImages,\n  currentImageIndex: imageIndex\n};\n\nreturn { json: { taskId, done: false } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        1040
+      ],
+      "id": "98768b1c-fb5b-458d-841e-e26a9c75cc81",
+      "name": "保存重新生成图片"
+    },
+    {
+      "parameters": {
+        "path": "lunxuns",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1840,
+        1552
+      ],
+      "id": "fe1e8136-d9e3-40d7-99ca-9fc83f9e6f7e",
+      "name": "状态查询",
+      "webhookId": "0c06cd47-b0e4-4a16-83a6-668ea5f68580"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "启动": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Outline Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Outline Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outline Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Outline Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outline Input": {
+      "main": [
+        [
+          {
+            "node": "Outline Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Outline Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        []
+      ]
+    },
+    "修改": {
+      "main": [
+        [
+          {
+            "node": "codes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Outline Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        []
+      ]
+    },
+    "Outline Input1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Outline Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Outline Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outline Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "处理图片通过",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "处理图片拒绝",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "Outline Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "codes": {
+      "main": [
+        [
+          {
+            "node": "构建回复",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outline Input1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "fm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call '小红书生图'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call '小红书生图'1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fm": {
+      "main": [
+        [
+          {
+            "node": "保存封面图",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook3": {
+      "main": [
+        []
+      ]
+    },
+    "读取状态": {
+      "main": [
+        [
+          {
+            "node": "返回状态",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "立即回复修改": {
+      "main": [
+        []
+      ]
+    },
+    "保存封面图": {
+      "main": [
+        []
+      ]
+    },
+    "处理图片通过": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "准备下一张",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "标记完成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构建回复": {
+      "main": [
+        [
+          {
+            "node": "立即回复修改",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "准备下一张": {
+      "main": [
+        [
+          {
+            "node": "生成下一张图",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成下一张图": {
+      "main": [
+        [
+          {
+            "node": "保存新图片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "处理图片拒绝": {
+      "main": [
+        [
+          {
+            "node": "重新生成图",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重新生成图": {
+      "main": [
+        [
+          {
+            "node": "保存重新生成图片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "状态查询": {
+      "main": [
+        [
+          {
+            "node": "读取状态",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ca69f2ab-8bb2-430c-8d22-2a6370b94a65",
+  "meta": {
+    "instanceId": "cc865eca5934db7b91a95dc22e8236fa02d9bcfc4fa95ae23f76c203ded99100"
+  },
+  "id": "mZTuowWLHOhw6DM4",
+  "tags": []
+}

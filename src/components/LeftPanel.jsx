@@ -27,7 +27,7 @@ export default function LeftPanel({
 }) {
   const [activeTab, setActiveTab] = useState('form') // 'form' | 'history'
   const schema = getSchemaByPlatform(platform)
-  const isDisabled = isSubmitting || taskStatus === 'processing' || taskStatus === 'revising'
+  const isDisabled = isSubmitting
 
   const ongoingTasks = (taskRecords || []).filter((t) => !TERMINAL_STATUSES.has(t.status))
   const historyTasks = (taskRecords || []).filter((t) => TERMINAL_STATUSES.has(t.status))

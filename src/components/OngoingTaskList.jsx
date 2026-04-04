@@ -17,12 +17,13 @@ const STATUS_TEXT = {
   processing:            '处理中',
   waiting_user_feedback: '待确认',
   revising:              '修改中',
+  image_review:          '图片待审核',
   frame_review:          '逐帧审核',
   video_generating:      '生成视频中',
   video_review:          '视频待确认',
 }
 
-const NEEDS_ACTION = new Set(['waiting_user_feedback', 'frame_review', 'video_review'])
+const NEEDS_ACTION = new Set(['waiting_user_feedback', 'image_review', 'frame_review', 'video_review'])
 
 function formatTime(ts) {
   if (!ts) return ''

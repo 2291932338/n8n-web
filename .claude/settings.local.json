@@ -18,7 +18,11 @@
       "Bash(where claude:*)",
       "Bash(node --input-type=module --eval \"import config, { getUrlsForPlatform } from './src/config.js'; console.log\\('XHS:', getUrlsForPlatform\\('xiaohongshu'\\).START_WORKFLOW_URL\\); console.log\\('DY:', getUrlsForPlatform\\('douyin'\\).START_WORKFLOW_URL\\);\")",
       "Bash(npm run:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npx vite:*)",
+      "mcp__plugin_everything-claude-code_exa__web_search_exa",
+      "mcp__plugin_everything-claude-code_exa__crawling_exa",
+      "mcp__plugin_everything-claude-code_sequential-thinking__sequentialthinking"
     ]
   }
 }

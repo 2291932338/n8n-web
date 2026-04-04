@@ -16,6 +16,24 @@ import {
 } from './mock'
 
 /**
+ * 安全解析响应 JSON
+ * n8n Respond 节点配置为 No Data 时返回空 body，直接 res.json() 会 throw。
+ * 空响应视为操作已受理（success:true），前端靠轮询获取后续状态。
+ */
+async function parseResponse(res) {
+  const text = await res.text()
+  if (!text || text.trim() === '') {
+    return { success: true, status: 'processing', message: '操作已受理' }
+  }
+  try {
+    const data = JSON.parse(text)
+    return Array.isArray(data) ? data[0] : data
+  } catch {
+    return { success: true, status: 'processing', message: '操作已受理' }
+  }
+}
+
+/**
  * 启动工作流（异步：n8n 立即返回 taskId，后台处理）
  * @returns {Promise<{success, taskId, status, message}>}
  */
@@ -35,8 +53,7 @@ export async function startWorkflow(platform, sessionId, params) {
     throw new Error(`启动工作流失败: ${res.status} ${res.statusText}`)
   }
 
-  const data = await res.json()
-  return Array.isArray(data) ? data[0] : data
+  return parseResponse(res)
 }
 
 /**
@@ -86,8 +103,7 @@ export async function submitUserAction(taskId, action, feedback = '', previousTe
     throw new Error(`提交操作失败: ${res.status} ${res.statusText}`)
   }
 
-  const data = await res.json()
-  return Array.isArray(data) ? data[0] : data
+  return parseResponse(res)
 }
 
 /**
@@ -113,8 +129,7 @@ export async function regenerateImages(taskId, confirmedText, platform = 'xiaoho
     throw new Error(`重新生成图片失败: ${res.status} ${res.statusText}`)
   }
 
-  const data = await res.json()
-  return Array.isArray(data) ? data[0] : data
+  return parseResponse(res)
 }
 
 /**

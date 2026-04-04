@@ -4,8 +4,9 @@
  * 每个任务有独立的 useTask 实例（通过 key 强制重建）
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { getAllTasks, deleteTask, clearAllTasks, getTask } from '../taskStore'
+import { setUpdateListener } from '../backgroundPoller'
 
 export function useTaskManager() {
   const [taskRecords, setTaskRecords] = useState(() => getAllTasks())
@@ -17,6 +18,12 @@ export function useTaskManager() {
   const refreshTaskRecords = useCallback(() => {
     setTaskRecords(getAllTasks())
   }, [])
+
+  // 注册后台轮询监听器，后台任务状态变化时刷新列表
+  useEffect(() => {
+    setUpdateListener(refreshTaskRecords)
+    return () => setUpdateListener(null)
+  }, [refreshTaskRecords])
 
   const newTask = useCallback(() => {
     setSelectedTaskRecord(null)
