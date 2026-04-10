@@ -149,6 +149,24 @@ function TaskDetailPanel({ task }) {
           <p className="text-xs text-red-600 dark:text-red-400">错误：{task.errorMessage}</p>
         </div>
       )}
+
+      {/* 素材包下载 */}
+      {task.downloadUrl && (
+        <div>
+          <button
+            onClick={() => window.open(task.downloadUrl, '_blank')}
+            className="flex items-center justify-center gap-2 w-full rounded-lg bg-green-600 px-3 py-2
+              text-xs font-semibold text-white transition-colors hover:bg-green-700"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            下载素材包
+          </button>
+        </div>
+      )}
     </div>
   )
 }
