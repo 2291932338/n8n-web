@@ -42,11 +42,17 @@ const INITIAL_STATE = {
   // 小红书逐张审图
   xhsImages: [],           // [{url, status: 'pending'|'approved'|'rejected'}]
   currentXhsImageIndex: 0,
-  // 抖音专用
+  // 抖音专用（逐帧审核模式）
   frames: [],              // [{ index, imageUrl, storyboardText, status }]
   currentFrameIndex: 0,
   confirmedText: '',       // 已确认的文案/稿件
   videoUrl: null,
+  // 抖音专用（批量生成模式）
+  workflowMode: 'batch',   // 'batch' | 'interactive'
+  storyboardDocument: null, // 完整分镜文档（markdown/结构化文本）
+  downloadUrl: null,        // 素材包下载链接（zip）
+  fileList: [],             // [{name, type, url, size}] 生成的文件列表
+  generationProgress: null, // {current, total, currentStep} 素材生成进度
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
@@ -72,6 +78,12 @@ function hydrateFromRecord(record) {
     currentXhsImageIndex: record.currentXhsImageIndex || 0,
     frames: record.frames || [],
     videoUrl: record.videoUrl || null,
+    // 批量模式字段
+    workflowMode: record.workflowMode || 'batch',
+    storyboardDocument: record.storyboardDocument || null,
+    downloadUrl: record.downloadUrl || null,
+    fileList: record.fileList || [],
+    generationProgress: record.generationProgress || null,
   }
 }
 
@@ -107,6 +119,12 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
           // 抖音专用字段
           frames: next.frames,
           videoUrl: next.videoUrl,
+          // 批量模式字段
+          workflowMode: next.workflowMode,
+          storyboardDocument: next.storyboardDocument,
+          downloadUrl: next.downloadUrl,
+          fileList: next.fileList,
+          generationProgress: next.generationProgress,
           // 图片操作锁（持久化，供 backgroundPoller 使用）
           _approvingImageIndex: approvingImageIndexRef.current,
           _rejectingImage: rejectingImageRef.current,
@@ -206,6 +224,38 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
     // 抖音特殊 stepName 处理
     if (isDouyin) {
+      // ── 批量模式：分镜文档生成中 ──
+      if (result.stepName === 'douyin_storyboard_generating') {
+        patch({
+          ...common,
+          taskStatus: 'processing',
+          statusMessage: result.message || '正在生成分镜文档...',
+        })
+        return
+      }
+      // ── 批量模式：素材生成中（配图、配音、字幕等）──
+      if (result.stepName === 'douyin_media_generating') {
+        patch({
+          ...common,
+          taskStatus: 'processing',
+          generationProgress: result.generationProgress || cur.generationProgress,
+          statusMessage: result.message || '正在生成素材...',
+        })
+        return
+      }
+      // ── 批量模式：所有素材完成 ──
+      if (result.stepName === 'douyin_batch_completed') {
+        patch({
+          ...common,
+          taskStatus: 'completed',
+          downloadUrl: result.downloadUrl || cur.downloadUrl,
+          fileList: result.fileList || cur.fileList,
+          storyboardDocument: result.storyboardDocument || cur.storyboardDocument,
+          preview: result.preview || cur.preview,
+        })
+        return
+      }
+      // ── 逐帧审核模式（保留原有逻辑）──
       if (result.stepName === 'douyin_frame_review' || result.stepName === 'douyin_frame_generating') {
         const frames = result.frames || cur.frames
         patch({
@@ -235,6 +285,9 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     if (result.status === 'completed') {
       const updates = { ...common, taskStatus: 'completed', preview: result.preview || cur.preview }
       if (isDouyin && result.videoUrl) updates.videoUrl = result.videoUrl
+      if (isDouyin && result.downloadUrl) updates.downloadUrl = result.downloadUrl
+      if (isDouyin && result.fileList) updates.fileList = result.fileList
+      if (isDouyin && result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
       patch(updates)
       return
     }
@@ -245,6 +298,10 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         ...common,
         taskStatus: 'waiting_user_feedback',
         preview: newPreview,
+      }
+      // 批量模式：保存分镜文档
+      if (isDouyin && result.storyboardDocument) {
+        updates.storyboardDocument = result.storyboardDocument
       }
       // 如果是初稿（previewHistory 为空），自动记录
       if (newPreview?.text && cur.previewHistory.length === 0) {
@@ -344,6 +401,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       taskStatus: 'processing',
       statusMessage: '工作流已启动，正在生成内容...',
       createdAt,
+      workflowMode: (platform === 'douyin' && formData['工作流模式'] === '逐帧审核模式') ? 'interactive' : 'batch',
     })
 
     // 立即开始轮询（n8n 收到请求后会用同一个 sessionId 存数据）
@@ -388,7 +446,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
   // ── 确认稿件 ───────────────────────────────────────────────
   const confirm = useCallback(() => {
-    const { taskId, preview, platform, previewHistory } = stateRef.current
+    const { taskId, preview, platform, previewHistory, workflowMode } = stateRef.current
     if (!taskId) return
 
     const updated = preview?.text ? [
@@ -398,25 +456,36 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     const confirmedText = preview?.text || ''
 
     // 先设置锁，再 patch（patch 内 saveTask 会持久化锁状态）
-    // confirm + generate_images 两个请求串行，总时长可能较长，锁定10分钟
+    // confirm + generate 两个请求串行，总时长可能较长，锁定10分钟
     actionLockRef.current = { prevStatus: 'waiting_user_feedback', lockedAt: Date.now(), lockDurationMs: 600000 }
+
+    const isBatchMode = platform === 'douyin' && workflowMode === 'batch'
     patch({
       isActionSubmitting: false,
       taskStatus: 'processing',
-      statusMessage: '确认成功，正在生成配图...',
+      statusMessage: isBatchMode ? '分镜确认成功，正在生成素材...' : '确认成功，正在生成配图...',
       previewHistory: updated,
       confirmedText,
     })
     startPollingAfterDelay(taskId, platform, 8000)
 
-    // 第一步：confirm（快速结束，立即写DB）
-    // 第二步：confirm 完成后再发 generate_images（开始生图，confirm的DB写入此时已完成）
-    submitUserAction(taskId, 'confirm', '', confirmedText, platform)
-      .then(() => submitUserAction(taskId, 'generate_images', '', confirmedText, platform))
-      .catch(() => {
-        patch({ taskStatus: 'failed', errorMessage: '确认失败，请检查网络连接' })
-        stopPolling()
-      })
+    if (isBatchMode) {
+      // 批量模式：confirm 后触发素材批量生成
+      submitUserAction(taskId, 'confirm', '', confirmedText, platform)
+        .then(() => submitUserAction(taskId, 'generate_media', '', confirmedText, platform))
+        .catch(() => {
+          patch({ taskStatus: 'failed', errorMessage: '确认失败，请检查网络连接' })
+          stopPolling()
+        })
+    } else {
+      // 逐帧审核模式 / 小红书模式
+      submitUserAction(taskId, 'confirm', '', confirmedText, platform)
+        .then(() => submitUserAction(taskId, 'generate_images', '', confirmedText, platform))
+        .catch(() => {
+          patch({ taskStatus: 'failed', errorMessage: '确认失败，请检查网络连接' })
+          stopPolling()
+        })
+    }
   }, [patch, startPollingAfterDelay, stopPolling])
 
   // ── 小红书：审核单张图片（通过）──────────────────────────

@@ -135,6 +135,18 @@ export const xiaohongshuSchema = [
 
 export const douyinSchema = [
   {
+    name: '工作流模式',
+    label: '工作流模式',
+    type: 'select',
+    placeholder: '选择工作流模式',
+    required: true,
+    defaultValue: '批量生成素材包',
+    options: [
+      '批量生成素材包',
+      '逐帧审核模式',
+    ],
+  },
+  {
     name: '主题/产品',
     label: '主题/产品',
     type: 'text',
@@ -173,12 +185,21 @@ export const douyinSchema = [
     ],
   },
   {
-    name: '视频类型（口播 / 混剪 / 剧情）',
+    name: '视频类型',
     label: '视频类型',
     type: 'select',
     placeholder: '选择视频类型',
     required: true,
     options: ['口播', '混剪', '剧情', '实拍', '动画'],
+  },
+  {
+    name: '视频比例',
+    label: '视频比例',
+    type: 'select',
+    placeholder: '选择视频比例',
+    required: false,
+    defaultValue: '9:16竖屏',
+    options: ['9:16竖屏', '16:9横屏', '1:1方形'],
   },
   {
     name: '分镜数量',
@@ -213,6 +234,30 @@ export const douyinSchema = [
     ],
   },
   {
+    name: '配音风格',
+    label: '配音风格',
+    type: 'select',
+    placeholder: '选择配音风格',
+    required: false,
+    options: [
+      '男声专业',
+      '女声温柔',
+      '男声磁性',
+      '女声活力',
+      'AI合成',
+      '不需要配音',
+    ],
+  },
+  {
+    name: '字幕样式',
+    label: '字幕样式',
+    type: 'select',
+    placeholder: '选择字幕样式',
+    required: false,
+    defaultValue: 'SRT字幕文件',
+    options: ['SRT字幕文件', 'ASS样式字幕', '不需要字幕'],
+  },
+  {
     name: 'BGM 风格',
     label: 'BGM 风格',
     type: 'select',
@@ -233,6 +278,13 @@ export const douyinSchema = [
     label: 'CTA / 行动引导',
     type: 'text',
     placeholder: '例如：点击小黄车下单、关注获取教程、评论区留言',
+    required: false,
+  },
+  {
+    name: '参考视频/灵感',
+    label: '参考视频/灵感',
+    type: 'textarea',
+    placeholder: '填写参考视频链接或创意灵感描述（选填）',
     required: false,
   },
   {

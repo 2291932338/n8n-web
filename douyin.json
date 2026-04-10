@@ -1,0 +1,777 @@
+{
+  "name": "douyin",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "= {\n     \"success\": true,\n     \"taskId\": \"{{ $json.body.sessionId }}\",\n     \"status\": \"processing\",\n     \"message\": \"任务已接收，正在生成分镜文档...\"\n   }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        176,
+        368
+      ],
+      "id": "3788604f-afbc-42b1-8e81-de354613aee1",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:5578/v1/chat-messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inputs\": {\n    \"topic\": \"{{ $json.params['主题/产品'] }}\",\n    \"audience\": \"{{ $json.params['目标人群'] }}\",\n    \"duration\": \"{{ $json.params['视频时长'] }}\",\n    \"style\": \"{{ $json.params['脚本风格'] }}\",\n    \"videoType\": \"{{ $json.params['视频类型'] }}\",\n    \"requirements\": \"视频比例: {{ $json.params['视频比例'] || '9:16竖屏' }}\\n分镜数量: {{ $json.params['分镜数量'] || '4-6个' }}\\n核心卖点: {{ $json.params['核心卖点'] || '' }}\\n画面风格: {{ $json.params['画面风格'] || '' }}\\n配音风格: {{ $json.params['配音风格'] || '' }}\\nBGM风格: {{ $json.params['BGM 风格'] || '' }}\\nCTA: {{ $json.params['CTA/行动引导'] || '' }}\\n参考: {{ $json.params['参考视频/灵感'] || '' }}\\n补充: {{ $json.params['补充说明'] || '' }}\"\n  },\n  \"query\": \"请根据以上参数生成分镜文档\",\n  \"response_mode\": \"blocking\",\n  \"user\": \"{{ $json.taskId }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        592,
+        368
+      ],
+      "id": "d062bea4-7c45-4fe7-9df1-fa3be714ce58",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTYkBlZVxydYQruD",
+          "name": "dify"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n// ===== 工具函数结束 =====\n\nconst response = $input.first().json;\nlet answer = response.answer || response.data?.answer || '';\n\n// 剥离 Dify 模型返回的 <think>...</think> 思考过程（DeepSeek 等模型会包含）\nanswer = answer.replace(/<think>[\\s\\S]*?<\\/think>\\s*/g, '').trim();\n\n// 尝试解析 JSON\nlet storyboard;\ntry {\n  storyboard = JSON.parse(answer);\n} catch {\n  // 可能包含 ```json 标记，尝试提取\n  const match = answer.match(/```json\\s*([\\s\\S]*?)```/);\n  if (match) {\n    storyboard = JSON.parse(match[1]);\n  } else {\n    // 尝试从混合文本中提取第一个 JSON 对象\n    const jsonMatch = answer.match(/\\{[\\s\\S]*\\}/);\n    if (jsonMatch) {\n      storyboard = JSON.parse(jsonMatch[0]);\n    } else {\n      storyboard = { raw: answer };\n    }\n  }\n}\n\n// 更新任务状态（写入文件）\n// ⚠️ 注意：下面 $('保存任务状态') 必须与你在 n8n 中节点 1.2 的标题完全一致\n// 如果你的节点名不同（如 \"Code\"、\"Code1\" 等），请改成你的实际节点名\nconst taskId = $('保存任务状态').first().json.taskId;\n\n// 提取 Dify 会话 ID（用于后续修改对话保留多轮记忆）\n// Dify 在首次对话返回时会生成 conversation_id，后续带上它即可继续同一会话\nconst conversationId = response.conversation_id || response.data?.conversation_id || null;\n\n// 生成文本预览\nconst previewText = typeof storyboard === 'object' && storyboard.scenes\n  ? storyboard.scenes.map((s, i) => \n      `【场景${i+1}】${s.title || ''}\\n时长: ${s.duration || ''}\\n画面: ${s.visualDescription || ''}\\n旁白: ${s.narration || ''}\\n字幕: ${s.subtitle || ''}`\n    ).join('\\n\\n')\n  : answer;\n\nsaveTask(taskId, {\n  status: 'waiting_user_feedback',\n  stepName: 'waiting_user_feedback',\n  message: '分镜文档已生成，请审核确认',\n  storyboardDocument: storyboard,\n  conversationId,                     // 新增：持久化 Dify 会话 ID\n  allowRevise: true,\n  allowConfirm: true,\n  preview: { text: previewText },\n});\n\nreturn [{ json: { taskId, storyboard, conversationId } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        368
+      ],
+      "id": "ccf698df-321a-4bf7-a946-08175aefda5c",
+      "name": "读取初稿"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n// ===== 工具函数结束 =====\n\n// 提取请求参数\nconst { sessionId, params, platform } = $input.first().json.body;\n\n// 组装任务数据\nconst taskData = {\n  taskId: sessionId,\n  platform: platform || 'douyin',\n  status: 'processing',\n  stepName: 'douyin_storyboard_generating',\n  message: '正在生成分镜文档...',\n  params: params,\n  createdAt: new Date().toISOString(),\n};\n\n// 保存到文件（持久化存储，多任务并发安全）\nsaveTask(sessionId, taskData);\n\nreturn [{ json: taskData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        368
+      ],
+      "id": "255d3e82-900a-4f4b-964f-affaf6659d4d",
+      "name": "保存任务状态"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "douyinstart",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        368
+      ],
+      "id": "81e9a9e6-20fd-44e0-b5ec-b8305fb6ef45",
+      "name": "启动",
+      "webhookId": "3e68c6be-f497-4ad2-8468-95724ed35446"
+    },
+    {
+      "parameters": {
+        "path": "douyinchaxun",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "id": "c0fa506f-2c4f-4e11-9bab-89946aeb36d9",
+      "name": "查询",
+      "webhookId": "21585d97-4a61-4ae8-8594-605a33cfc9ef"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction getTask(taskId) {\n  return readTasks()[taskId] || null;\n}\n// ===== 工具函数结束 =====\n\nconst taskId = $input.first().json.query.taskId;\nconst task = getTask(taskId);\n\nif (!task) {\n  return [{\n    json: {\n      success: false,\n      status: 'processing',\n      message: '任务初始化中...',\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    success: true,\n    status: task.status,\n    stepName: task.stepName,\n    message: task.message,\n    preview: task.preview || null,\n    storyboardDocument: task.storyboardDocument || null,\n    allowRevise: task.allowRevise || false,\n    allowConfirm: task.allowConfirm || false,\n    downloadUrl: task.downloadUrl || null,\n    fileList: task.fileList || [],\n    generationProgress: task.generationProgress || null,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        96
+      ],
+      "id": "e9f8abca-3986-400c-bbe5-3ec35cdad087",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        416,
+        96
+      ],
+      "id": "d0bbea55-c7ef-4a64-8e8c-16b4ed8ba42c",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "douyinyhcz",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -128,
+        -480
+      ],
+      "id": "4212727a-ceff-44bb-8f32-af4513113c5a",
+      "name": "Webhook",
+      "webhookId": "86914bcd-f4df-4010-9e2b-36c1db5f9c6d"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "revise",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "1dee0de3-ba03-492a-a023-b5664ad4dba4"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "修改"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0976bc3e-9ba2-414b-a431-54938b76a5cc",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "confirm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "确认"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "75ee708a-046e-4004-9199-64fbc7f581b8",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "generate_media",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "生成素材"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        -368
+      ],
+      "id": "928a2a13-64fe-4f26-b38c-772d46637ff0",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:5578/v1/chat-messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inputs\": {\n    \"topic\": \"{{ $json.params['主题/产品'] }}\",\n    \"audience\": \"{{ $json.params['目标人群'] }}\",\n    \"duration\": \"{{ $json.params['视频时长'] }}\",\n    \"style\": \"{{ $json.params['脚本风格'] }}\",\n    \"videoType\": \"{{ $json.params['视频类型'] }}\",\n    \"requirements\": \"视频比例: {{ $json.params['视频比例'] || '9:16竖屏' }}\\n分镜数量: {{ $json.params['分镜数量'] || '4-6个' }}\\n核心卖点: {{ $json.params['核心卖点'] || '' }}\\n画面风格: {{ $json.params['画面风格'] || '' }}\\n配音风格: {{ $json.params['配音风格'] || '' }}\\nBGM风格: {{ $json.params['BGM 风格'] || '' }}\\nCTA: {{ $json.params['CTA/行动引导'] || '' }}\\n参考: {{ $json.params['参考视频/灵感'] || '' }}\\n补充: {{ $json.params['补充说明'] || '' }}\"\n  },\n  \"query\": \"{{ $json.feedback }}\",\n  \"response_mode\": \"blocking\",\n  \"user\": \"{{ $json.taskId }}\",\n  \"conversation_id\":\"{{ $json.conversationId }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        -672
+      ],
+      "id": "764be474-9153-4324-9194-441f89ef6611",
+      "name": "HTTP Request1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTYkBlZVxydYQruD",
+          "name": "dify"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n// ===== 工具函数结束 =====\n\nconst response = $input.first().json;\nlet answer = response.answer || response.data?.answer || '';\nanswer = answer.replace(/<think>[\\s\\S]*?<\\/think>\\s*/g, '').trim();\n\nlet storyboard;\ntry {\n  storyboard = JSON.parse(answer);\n} catch {\n  const match = answer.match(/```json\\s*([\\s\\S]*?)```/);\n  if (match) {\n    storyboard = JSON.parse(match[1]);\n  } else {\n    const jsonMatch = answer.match(/\\{[\\s\\S]*\\}/);\n    storyboard = jsonMatch ? JSON.parse(jsonMatch[0]) : { raw: answer };\n  }\n}\n\n// ⚠️ 这里引用修改意见分支的 Code 节点（2.3a）拿 taskId\nconst taskId = $('获取修改内容').first().json.taskId;  // 改成你节点 2.3a 的实际标题\n\n// 保留原有的 conversation_id（不会变）\nconst conversationId = response.conversation_id || $('Code').first().json.conversationId;\n\nconst previewText = typeof storyboard === 'object' && storyboard.scenes\n  ? storyboard.scenes.map((s, i) =>\n      `【场景${i+1}】${s.title || ''}\\n时长: ${s.duration || ''}\\n画面: ${s.visualDescription || ''}\\n旁白: ${s.narration || ''}\\n字幕: ${s.subtitle || ''}`\n    ).join('\\n\\n')\n  : answer;\n\nsaveTask(taskId, {\n  status: 'waiting_user_feedback',\n  stepName: 'waiting_user_feedback',\n  message: '分镜文档已重新生成，请审核确认',\n  storyboardDocument: storyboard,\n  conversationId,                     // 保留会话 ID\n  allowRevise: true,\n  allowConfirm: true,\n  preview: { text: previewText },\n});\n\nreturn [{ json: { taskId, storyboard, conversationId } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -672
+      ],
+      "id": "10179a7a-91f8-4ac9-a56b-138b04851f68",
+      "name": "读取初稿1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n\nfunction getTask(taskId) {\n  return readTasks()[taskId] || null;\n}\n// ===== 工具函数结束 =====\n\nconst { taskId, feedback } = $input.first().json.body;\nconst task = getTask(taskId);\n\nsaveTask(taskId, {\n  status: 'processing',\n  stepName: 'douyin_storyboard_generating',\n  message: '正在根据修改意见重新生成分镜文档...',\n  allowRevise: false,\n  allowConfirm: false,\n});\n\nreturn [{ json: { taskId, feedback, params: task?.params,conversationId: task?.conversationId } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -672
+      ],
+      "id": "bef234ac-d54c-4f90-ab46-a76266088d28",
+      "name": "获取修改内容"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n// ===== 工具函数结束 =====\n\nconst { taskId } = $input.first().json.body;\n\nsaveTask(taskId, {\n  status: 'processing',\n  message: '分镜已确认',\n});\n\nreturn [{ json: { success: true, message: '分镜已确认' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -512
+      ],
+      "id": "9d6eb365-3ad2-4fbe-b7e4-42cd41d5bc38",
+      "name": "确认分支"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n\nfunction getTask(taskId) {\n  return readTasks()[taskId] || null;\n}\n// ===== 工具函数结束 =====\n\nconst { taskId } = $input.first().json.body;\nconst task = getTask(taskId);\n\nsaveTask(taskId, {\n  status: 'processing',\n  stepName: 'douyin_media_generating',\n  message: '正在批量生成素材...',\n});\n\n// 传递分镜数据给下一步\nconst storyboard = task?.storyboardDocument;\nconst scenes = storyboard?.scenes || [];\n\nreturn [{ json: { taskId, scenes, params: task?.params } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -256
+      ],
+      "id": "9a89d865-aac5-41fb-8966-30c8f1d5ba78",
+      "name": "素材生成"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        944,
+        -352
+      ],
+      "id": "143ac54d-37c0-491c-8b0a-7db7110dfc2f",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst TASKS_FILE = '/home/node/tasks/n8n_douyin_tasks.json';\n\nfunction readTasks() {\n  try {\n    if (!fs.existsSync(TASKS_FILE)) return {};\n    return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));\n  } catch { return {}; }\n}\n\nfunction writeTasks(tasks) {\n  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks), 'utf8');\n}\n\nfunction saveTask(taskId, data) {\n  const tasks = readTasks();\n  tasks[taskId] = { ...(tasks[taskId] || {}), ...data };\n  writeTasks(tasks);\n}\n// ===== 工具函数结束 =====\n\nconst taskId = $('素材生成').first().json.taskId;\nconst scenes = $('素材生成').first().json.scenes;\nconst currentIndex = $input.first().json.$itemIndex || 0;\nconst scene = $input.first().json;\n\nsaveTask(taskId, {\n  generationProgress: {\n    current: currentIndex,\n    total: scenes.length,\n    currentStep: `正在生成第${currentIndex + 1}个分镜的素材...`,\n  },\n});\n\nreturn [{ json: { taskId, scene, sceneIndex: currentIndex + 1 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -304
+      ],
+      "id": "0ab15480-68d1-4f98-a135-5d085de06d05",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {
+    "查询": [
+      {
+        "json": {
+          "headers": {
+            "host": "8.130.32.43:5678",
+            "connection": "keep-alive",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "accept": "*/*",
+            "origin": "http://localhost:3000",
+            "referer": "http://localhost:3000/",
+            "accept-encoding": "gzip, deflate",
+            "accept-language": "zh-CN,zh;q=0.9"
+          },
+          "params": {},
+          "query": {
+            "taskId": "4c4309dd-6dc3-410a-836f-96faa490950a"
+          },
+          "body": {},
+          "webhookUrl": "http://8.130.32.43:5678/webhook/douyinchaxun",
+          "executionMode": "production"
+        }
+      }
+    ],
+    "Code in JavaScript": [
+      {
+        "json": {
+          "success": true,
+          "status": "waiting_user_feedback",
+          "stepName": "waiting_user_feedback",
+          "message": "分镜文档已生成，请审核确认",
+          "preview": {
+            "text": "【场景1】开场悬念：旧表vs新表\n时长: 8秒\n画面: 明亮的大学宿舍书桌前，阳光透过百叶窗洒在桌面上。画面左侧是一块屏幕碎裂、表带发黄的旧款电子表，右侧是一款设计现代、金属质感强烈的新款智能手表。镜头缓慢推近，聚焦在新表精致的表盘细节上，背景虚化，色调明亮清新，高饱和度自然光。\n旁白: 还在戴这种过时且易坏的手表？今天直接看真相！\n字幕: 拒绝过时！真实测评\n\n【场景2】颜值展示：佩戴效果\n时长: 12秒\n画面: 一位穿着简约白T恤的男大学生站在校园林荫道下，手腕自然抬起展示手表。阳光斑驳地洒在手表屏幕上，反射出细腻的光泽。表带材质清晰可见，显得非常耐用。镜头跟随手腕轻微转动，展示不同角度的光泽感，整体氛围青春活力，色调清透。\n旁白: 先看颜值，这质感绝对不输千元大牌，男生戴出去超有面儿，而且耐磨防刮，随便造都不心疼。\n字幕: 颜值在线 耐造神器\n\n【场景3】核心功能：心率监测实测\n时长: 15秒\n画面: 快速剪辑镜头。首先是男大学生在操场跑步的特写，呼吸急促，汗水微亮；紧接着切到手表屏幕，显示实时心率数据从120迅速跳变至160，绿色数字清晰醒目。背景是模糊的运动人群，光线为户外自然光，色彩鲜艳，体现运动后的真实状态和数据的精准度。\n旁白: 重点来了！刚跑完一千米，心率瞬间飙升，它精准捕捉每一个跳动，运动健康数据一目了然，专业级体验。\n字幕: 精准心率 运动无忧\n\n【场景4】耐用性测试：暴力挑战\n时长: 12秒\n画面: 俯视视角拍摄木质桌面。一只手将智能手表用力敲击桌面边缘（模拟意外磕碰），然后拿起湿毛巾擦拭屏幕上的水渍。手表表面光洁如新，无任何划痕和水痕。背景简洁，光线均匀明亮，突出产品的坚固耐用特性，色调干净利落。\n旁白: 再测耐用性，抗摔防水，日常洗手、淋雨完全没问题，这才是学生党需要的硬核品质。\n字幕: 硬核耐用 无惧意外\n\n【场景5】总结与CTA行动引导\n时长: 13秒\n画面: 男大学生面对镜头微笑，手持手表展示正面，背景是充满阳光的校园广场。画面构图居中，人物眼神自信亲切。光线柔和温暖，营造信任感。最后屏幕下方出现醒目的购买指引箭头动画，色调保持明亮清新。\n旁白: 好看又耐用，还能精准监测健康。想提升生活品质的兄弟，赶紧点击左下角入手吧！\n字幕: 点击左下角 立即抢购"
+          },
+          "storyboardDocument": {
+            "title": "大学生智能手表实测：颜值与实用的完美平衡",
+            "topic": "智能手表对比测评",
+            "totalDuration": 60,
+            "targetAudience": "男大学生群体",
+            "style": "明亮清新，科技感与生活化结合",
+            "scenes": [
+              {
+                "title": "开场悬念：旧表vs新表",
+                "duration": "8秒",
+                "cameraAngle": "特写",
+                "visualDescription": "明亮的大学宿舍书桌前，阳光透过百叶窗洒在桌面上。画面左侧是一块屏幕碎裂、表带发黄的旧款电子表，右侧是一款设计现代、金属质感强烈的新款智能手表。镜头缓慢推近，聚焦在新表精致的表盘细节上，背景虚化，色调明亮清新，高饱和度自然光。",
+                "narration": "还在戴这种过时且易坏的手表？今天直接看真相！",
+                "subtitle": "拒绝过时！真实测评",
+                "transition": "硬切",
+                "bgm": "轻快活泼",
+                "notes": "此处配合清脆的‘叮’声效，强调新旧对比"
+              },
+              {
+                "title": "颜值展示：佩戴效果",
+                "duration": "12秒",
+                "cameraAngle": "中景",
+                "visualDescription": "一位穿着简约白T恤的男大学生站在校园林荫道下，手腕自然抬起展示手表。阳光斑驳地洒在手表屏幕上，反射出细腻的光泽。表带材质清晰可见，显得非常耐用。镜头跟随手腕轻微转动，展示不同角度的光泽感，整体氛围青春活力，色调清透。",
+                "narration": "先看颜值，这质感绝对不输千元大牌，男生戴出去超有面儿，而且耐磨防刮，随便造都不心疼。",
+                "subtitle": "颜值在线 耐造神器",
+                "transition": "向右滑动",
+                "bgm": "轻快活泼",
+                "notes": "画面需体现阳光下的通透感，突出金属或玻璃材质的质感"
+              },
+              {
+                "title": "核心功能：心率监测实测",
+                "duration": "15秒",
+                "cameraAngle": "特写/跟拍",
+                "visualDescription": "快速剪辑镜头。首先是男大学生在操场跑步的特写，呼吸急促，汗水微亮；紧接着切到手表屏幕，显示实时心率数据从120迅速跳变至160，绿色数字清晰醒目。背景是模糊的运动人群，光线为户外自然光，色彩鲜艳，体现运动后的真实状态和数据的精准度。",
+                "narration": "重点来了！刚跑完一千米，心率瞬间飙升，它精准捕捉每一个跳动，运动健康数据一目了然，专业级体验。",
+                "subtitle": "精准心率 运动无忧",
+                "transition": "缩放转场",
+                "bgm": "节奏加快，充满活力",
+                "notes": "心率数字变化时需配合动态音效，增强科技感"
+              },
+              {
+                "title": "耐用性测试：暴力挑战",
+                "duration": "12秒",
+                "cameraAngle": "俯拍",
+                "visualDescription": "俯视视角拍摄木质桌面。一只手将智能手表用力敲击桌面边缘（模拟意外磕碰），然后拿起湿毛巾擦拭屏幕上的水渍。手表表面光洁如新，无任何划痕和水痕。背景简洁，光线均匀明亮，突出产品的坚固耐用特性，色调干净利落。",
+                "narration": "再测耐用性，抗摔防水，日常洗手、淋雨完全没问题，这才是学生党需要的硬核品质。",
+                "subtitle": "硬核耐用 无惧意外",
+                "transition": "硬切",
+                "bgm": "轻快活泼",
+                "notes": "敲击时加入沉闷有力的音效，擦拭时加入清爽的水声"
+              },
+              {
+                "title": "总结与CTA行动引导",
+                "duration": "13秒",
+                "cameraAngle": "平拍",
+                "visualDescription": "男大学生面对镜头微笑，手持手表展示正面，背景是充满阳光的校园广场。画面构图居中，人物眼神自信亲切。光线柔和温暖，营造信任感。最后屏幕下方出现醒目的购买指引箭头动画，色调保持明亮清新。",
+                "narration": "好看又耐用，还能精准监测健康。想提升生活品质的兄弟，赶紧点击左下角入手吧！",
+                "subtitle": "点击左下角 立即抢购",
+                "transition": "淡入淡出",
+                "bgm": "轻快活泼，结尾上扬",
+                "notes": "结尾处添加购物车图标动画，强化购买引导"
+              }
+            ]
+          },
+          "allowRevise": true,
+          "allowConfirm": true,
+          "downloadUrl": null,
+          "fileList": [],
+          "generationProgress": null
+        }
+      }
+    ],
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "8.130.32.43:5678",
+            "connection": "keep-alive",
+            "content-length": "2377",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "content-type": "application/json",
+            "accept": "*/*",
+            "origin": "http://localhost:3000",
+            "referer": "http://localhost:3000/",
+            "accept-encoding": "gzip, deflate",
+            "accept-language": "zh-CN,zh;q=0.9"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "taskId": "6e1e2c8e-78da-48fb-a578-22069207a8cd",
+            "action": "revise",
+            "feedback": "修改一下速度与激情的内容",
+            "previousText": "【场景1】开场悬念：颜值暴击\n时长: 4秒\n画面: 明亮清新的室内背景，一只佩戴着银白色金属表带智能手表的手腕特写，阳光透过百叶窗洒在表盘上，产生迷人的丁达尔效应。表盘屏幕亮起，显示炫酷的动态壁纸，手指轻轻滑动切换界面，画面色调为高饱和度的冷白与淡蓝，突出质感与高级感。\n旁白: 别划走！这颜值简直绝了！\n字幕: 颜值天花板？\n\n【场景2】性能展示：速度与激情\n时长: 6秒\n画面: 户外公园场景，阳光明媚。一位穿着运动装的年轻男性正在跑步，镜头跟随手腕快速摆动。手表屏幕瞬间弹出高性能模式界面，显示流畅的3D游戏画面或复杂的数据图表，背景虚化，强调手表在动态下的清晰度和响应速度，色调明亮通透。\n旁白: 拒绝卡顿！性能强劲如旗舰手机，\n字幕: 性能强悍 丝滑体验\n\n【场景3】功能实测：心率守护\n时长: 7秒\n画面: 近景俯拍视角，男子停下脚步调整呼吸，手表背面传感器紧贴皮肤发光。随后镜头切换至手表正面，实时心率曲线平滑上升并显示具体数值，背景是蓝天白云和绿树，光线柔和自然，体现健康科技的安心感，色调清新治愈。\n旁白: 精准心率监测，运动数据一目了然，\n字幕: 专业心率 实时守护\n\n【场景4】对比总结：优势碾压\n时长: 6秒\n画面: 画面采用左右分屏对比，左边是普通老款手表（色调灰暗、反应慢），右边是本款智能手表（色调明亮、操作流畅）。右侧手表发出微光特效，左侧逐渐暗淡消失。主角自信微笑看向镜头，背景简洁现代。\n旁白: 同价位对比，它才是真正的王者。\n字幕: 同价位 无对手\n\n【场景5】行动引导：限时福利\n时长: 7秒\n画面: 男子手持手表对着镜头展示，身后是充满活力的城市街景。画面右下角弹出醒目的红色“点击购买”按钮动画，周围环绕金色粒子特效。整体画面明亮，充满希望感，引导用户立即行动，色调鲜艳明快。\n旁白: 想拥有同款？左下角链接赶紧抢！\n字幕: 点击抢购 限时优惠"
+          },
+          "webhookUrl": "http://8.130.32.43:5678/webhook/douyinyhcz",
+          "executionMode": "production"
+        }
+      }
+    ],
+    "启动": [
+      {
+        "json": {
+          "headers": {
+            "host": "8.130.32.43:5678",
+            "connection": "keep-alive",
+            "content-length": "599",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "content-type": "application/json",
+            "accept": "*/*",
+            "origin": "http://localhost:3000",
+            "referer": "http://localhost:3000/",
+            "accept-encoding": "gzip, deflate",
+            "accept-language": "zh-CN,zh;q=0.9"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "platform": "douyin",
+            "sessionId": "6e1e2c8e-78da-48fb-a578-22069207a8cd",
+            "params": {
+              "主题/产品": "智能手表",
+              "目标人群": "年轻人",
+              "视频时长": "30秒",
+              "脚本风格": "对比测评",
+              "视频类型（口播 / 混剪 / 剧情）": "混剪",
+              "分镜数量": "4-6个",
+              "核心卖点": "外观好看，性能强劲，具备心率检测功能",
+              "画面风格": "明亮清新",
+              "BGM 风格": "热血激昂",
+              "CTA/行动引导": "",
+              "补充说明": "",
+              "工作流模式": "批量生成素材包",
+              "配音风格": "男声专业",
+              "字幕样式": "SRT字幕文件",
+              "视频类型": "口播",
+              "视频比例": "9:16竖屏"
+            }
+          },
+          "webhookUrl": "http://8.130.32.43:5678/webhook/douyinstart",
+          "executionMode": "production"
+        }
+      }
+    ],
+    "HTTP Request": [
+      {
+        "json": {
+          "event": "message",
+          "task_id": "a0fc40ec-28a0-4ecb-b85c-5a348f15ee05",
+          "id": "77c3fff0-f534-4df4-9021-7c74c3342f61",
+          "message_id": "77c3fff0-f534-4df4-9021-7c74c3342f61",
+          "conversation_id": "a4bf6056-27bd-48f2-b8c8-a37c0923d725",
+          "mode": "advanced-chat",
+          "answer": "{\n  \"title\": \"30秒实测：这款智能手表凭什么让年轻人疯狂？\",\n  \"topic\": \"智能手表对比测评\",\n  \"totalDuration\": 30,\n  \"targetAudience\": \"追求时尚与性能的年轻群体\",\n  \"style\": \"明亮清新、快节奏、专业测评\",\n  \"scenes\": [\n    {\n      \"title\": \"开场悬念\",\n      \"duration\": \"3秒\",\n      \"cameraAngle\": \"特写\",\n      \"visualDescription\": \"明亮的现代办公桌面，两只不同款式的智能手表并排摆放。左侧手表显得厚重老气，右侧新款手表设计极简、金属质感强烈。阳光透过百叶窗洒在桌面上，形成明暗对比的光影效果，焦点清晰地对准右侧新款手表的表盘细节。\",\n      \"narration\": \"还在用这种老古董？看这里！\",\n      \"subtitle\": \"拒绝老古董！看新款\",\n      \"transition\": \"闪白\",\n      \"bgm\": \"热血激昂\",\n      \"notes\": \"配合音效：重音鼓点\"\n    },\n    {\n      \"title\": \"外观展示\",\n      \"duration\": \"6秒\",\n      \"cameraAngle\": \"中景\",\n      \"visualDescription\": \"一位穿着潮流卫衣的年轻男性模特站在落地窗前，背景是虚化的城市天际线。他抬起手腕，展示佩戴在手腕上的新款智能手表，表带为活力橙色。光线柔和明亮，整体色调清新通透，突出手表的时尚设计和轻薄感。\",\n      \"narration\": \"颜值爆表，轻盈如风，戴在手上简直绝了。\",\n      \"subtitle\": \"颜值爆表 轻盈如风\",\n      \"transition\": \"向右滑动\",\n      \"bgm\": \"热血激昂\",\n      \"notes\": \"画面需体现模特的自信神态\"\n    },\n    {\n      \"title\": \"性能演示\",\n      \"duration\": \"8秒\",\n      \"cameraAngle\": \"特写\",\n      \"visualDescription\": \"极近距离拍摄手表屏幕，手指快速滑动操作界面，应用启动瞬间流畅无卡顿。屏幕显示复杂的运动数据图表，色彩鲜艳饱和。背景为模糊的健身房环境，光线充足，强调科技感与高性能的视觉冲击。\",\n      \"narration\": \"性能强劲，丝滑操作，复杂任务秒响应。\",\n      \"subtitle\": \"性能强劲 丝滑响应\",\n      \"transition\": \"缩放\",\n      \"bgm\": \"热血激昂\",\n      \"notes\": \"此处可加速播放操作过程以体现速度感\"\n    },\n    {\n      \"title\": \"核心功能\",\n      \"duration\": \"7秒\",\n      \"cameraAngle\": \"平拍\",\n      \"visualDescription\": \"模特正在户外跑步，镜头跟随其手臂摆动。特写手表屏幕实时跳动的心率数值（红色动态波形），周围环绕着清新的空气感和自然光晕。画面色调明快，充满健康活力的氛围，突出心率监测的精准度。\",\n      \"narration\": \"精准心率监测，你的私人健康管家时刻在线。\",\n      \"subtitle\": \"精准监测 健康管家\",\n      \"transition\": \"硬切\",\n      \"bgm\": \"热血激昂\",\n      \"notes\": \"心率数值要有动态发光特效\"\n    },\n    {\n      \"title\": \"总结与CTA\",\n      \"duration\": \"6秒\",\n      \"cameraAngle\": \"中近景\",\n      \"visualDescription\": \"模特面对镜头微笑，手持手表向观众展示，背景是阳光明媚的公园草地。画面构图饱满，色彩清新温暖。字幕在画面下方弹出购买链接指引图标，整体氛围积极向上，引导用户行动。\",\n      \"narration\": \"这样全能的手表，你还不冲吗？点击左下角！\",\n      \"subtitle\": \"点击左下角 立即入手\",\n      \"transition\": \"淡入淡出\",\n      \"bgm\": \"热血激昂\",\n      \"notes\": \"结尾处添加购物车图标动画入场\"\n    }\n  ]\n}",
+          "metadata": {
+            "annotation_reply": null,
+            "retriever_resources": [],
+            "usage": {
+              "prompt_tokens": 947,
+              "prompt_unit_price": "0.0002",
+              "prompt_price_unit": "0.001",
+              "prompt_price": "0.0001894",
+              "completion_tokens": 888,
+              "completion_unit_price": "0.002",
+              "completion_price_unit": "0.001",
+              "completion_price": "0.001776",
+              "total_tokens": 1835,
+              "total_price": "0.0019654",
+              "currency": "RMB",
+              "latency": 5.552,
+              "time_to_first_token": 0.692,
+              "time_to_generate": 5.078
+            }
+          },
+          "created_at": 1775801412
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "获取修改内容": [
+      {
+        "json": {
+          "taskId": "6e1e2c8e-78da-48fb-a578-22069207a8cd",
+          "feedback": "修改一下速度与激情的内容",
+          "params": {
+            "主题/产品": "智能手表",
+            "目标人群": "年轻人",
+            "视频时长": "30秒",
+            "脚本风格": "对比测评",
+            "视频类型（口播 / 混剪 / 剧情）": "混剪",
+            "分镜数量": "4-6个",
+            "核心卖点": "外观好看，性能强劲，具备心率检测功能",
+            "画面风格": "明亮清新",
+            "BGM 风格": "热血激昂",
+            "CTA/行动引导": "",
+            "补充说明": "",
+            "工作流模式": "批量生成素材包",
+            "配音风格": "男声专业",
+            "字幕样式": "SRT字幕文件",
+            "视频类型": "口播",
+            "视频比例": "9:16竖屏"
+          },
+          "conversationId": "a4bf6056-27bd-48f2-b8c8-a37c0923d725"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "保存任务状态",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "读取初稿",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "保存任务状态": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "启动": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查询": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "获取修改内容",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "确认分支",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "素材生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "读取初稿1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取修改内容": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "素材生成": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c7d06e75-4fd9-430a-b59a-14d60e88f104",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cc865eca5934db7b91a95dc22e8236fa02d9bcfc4fa95ae23f76c203ded99100"
+  },
+  "id": "gV94bj508JchjWwk",
+  "tags": []
+}

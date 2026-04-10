@@ -181,6 +181,17 @@ function handleUpdate(taskId, platform, result) {
   } else if (result.stepName === 'douyin_video_review') {
     updates.status = 'video_review'
     if (result.videoUrl) updates.videoUrl = result.videoUrl
+  } else if (result.stepName === 'douyin_storyboard_generating') {
+    updates.status = 'processing'
+  } else if (result.stepName === 'douyin_media_generating') {
+    updates.status = 'processing'
+    if (result.generationProgress) updates.generationProgress = result.generationProgress
+  } else if (result.stepName === 'douyin_batch_completed') {
+    updates.status = 'completed'
+    if (result.downloadUrl) updates.downloadUrl = result.downloadUrl
+    if (result.fileList) updates.fileList = result.fileList
+    if (result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
+    if (result.preview) updates.preview = result.preview
   } else {
     updates.status = 'processing'
   }

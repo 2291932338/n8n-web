@@ -20,11 +20,11 @@ const config = {
   // ========== 抖音接口地址（填写抖音专属 n8n Webhook）==========
   DOUYIN: {
     // 启动工作流
-    START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/douyin-start-workflow',
+    START_WORKFLOW_URL: 'http://8.130.32.43:5678/webhook/douyinstart',
     // 查询任务状态（异步轮询）
-    STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/douyin-query-status',
+    STATUS_QUERY_URL: 'http://8.130.32.43:5678/webhook/douyinchaxun',
     // 用户操作回传（分镜稿件修改意见 / 确认稿件）
-    USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/douyin-user-action',
+    USER_ACTION_URL: 'http://8.130.32.43:5678/webhook/douyinyhcz',
     // 单帧审核（approve / reject + 意见）
     FRAME_ACTION_URL: 'https://your-n8n-domain.com/webhook/douyin-frame-action',
     // 触发视频生成（所有帧审核通过后调用）
@@ -37,7 +37,7 @@ const config = {
   // 轮询间隔（毫秒）
   POLL_INTERVAL: 3000,
   // 轮询超时时间（毫秒），超时后停止轮询并提示
-  POLL_TIMEOUT: 300000, // 5 分钟
+  POLL_TIMEOUT: 900000, // 15 分钟
 
   // ========== Mock 模式 ==========
   // true: 使用前端模拟数据，无需真实 n8n 接口

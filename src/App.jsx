@@ -74,6 +74,11 @@ function TaskInstance({
           frames={task.frames}
           currentFrameIndex={task.currentFrameIndex}
           videoUrl={task.videoUrl}
+          workflowMode={task.workflowMode}
+          storyboardDocument={task.storyboardDocument}
+          downloadUrl={task.downloadUrl}
+          fileList={task.fileList}
+          generationProgress={task.generationProgress}
           onRevise={task.revise}
           onConfirm={task.confirm}
           onRetry={task.reset}
@@ -108,6 +113,11 @@ function TaskInstance({
           frames={task.frames}
           currentFrameIndex={task.currentFrameIndex}
           videoUrl={task.videoUrl}
+          workflowMode={task.workflowMode}
+          storyboardDocument={task.storyboardDocument}
+          downloadUrl={task.downloadUrl}
+          fileList={task.fileList}
+          generationProgress={task.generationProgress}
           onRevise={task.revise}
           onConfirm={task.confirm}
           onRetry={task.reset}

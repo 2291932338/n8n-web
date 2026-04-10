@@ -16,6 +16,9 @@ import UserActionBar from './UserActionBar'
 import RegenerateImagesButton from './RegenerateImagesButton'
 import DouyinFrameReview from './DouyinFrameReview'
 import DouyinVideoReview from './DouyinVideoReview'
+import DouyinStoryboardReview from './DouyinStoryboardReview'
+import DouyinMediaProgress from './DouyinMediaProgress'
+import DouyinProductionResult from './DouyinProductionResult'
 import XhsImageReview from './XhsImageReview'
 
 function VersionHistory({ previewHistory }) {
@@ -142,6 +145,12 @@ export default function RightPanel({
   frames,
   currentFrameIndex,
   videoUrl,
+  // 批量模式字段
+  workflowMode,
+  storyboardDocument,
+  downloadUrl,
+  fileList,
+  generationProgress,
   onRevise,
   onConfirm,
   onRetry,
@@ -155,6 +164,7 @@ export default function RightPanel({
   onConfirmVideo,
 }) {
   const isDouyin = platform === 'douyin'
+  const isBatchMode = isDouyin && workflowMode === 'batch'
   const isIdle = taskStatus === 'idle'
   const isFailed = taskStatus === 'failed'
   const isCompleted = taskStatus === 'completed'
@@ -183,6 +193,33 @@ export default function RightPanel({
         {/* 错误状态 */}
         {isFailed && <ErrorState message={errorMessage} onRetry={onRetry} />}
 
+        {/* ── 抖音批量模式：分镜文档审核 ── */}
+        {isBatchMode && isWaiting && (storyboardDocument || preview?.text) && (
+          <DouyinStoryboardReview
+            storyboardDocument={storyboardDocument}
+            previewText={preview?.text}
+            isActionSubmitting={isActionSubmitting}
+          />
+        )}
+
+        {/* ── 抖音批量模式：素材生成进度 ── */}
+        {isBatchMode && isProcessing && stepName === 'douyin_media_generating' && (
+          <DouyinMediaProgress
+            generationProgress={generationProgress}
+            statusMessage={statusMessage}
+          />
+        )}
+
+        {/* ── 抖音批量模式：生成完成，展示文件列表 ── */}
+        {isBatchMode && isCompleted && (downloadUrl || (fileList && fileList.length > 0)) && (
+          <DouyinProductionResult
+            downloadUrl={downloadUrl}
+            fileList={fileList}
+            storyboardDocument={storyboardDocument}
+            preview={preview}
+          />
+        )}
+
         {/* ── 小红书：逐张图片审核 ── */}
         {!isDouyin && isImageReview && (
           <XhsImageReview
@@ -194,8 +231,8 @@ export default function RightPanel({
           />
         )}
 
-        {/* ── 抖音：分镜图片逐帧审核 ── */}
-        {isDouyin && isFrameReview && (
+        {/* ── 抖音逐帧审核模式：分镜图片逐帧审核 ── */}
+        {isDouyin && !isBatchMode && isFrameReview && (
           <DouyinFrameReview
             frames={frames || []}
             currentFrameIndex={currentFrameIndex}
@@ -207,13 +244,13 @@ export default function RightPanel({
           />
         )}
 
-        {/* ── 抖音：视频生成中 ── */}
-        {isDouyin && taskStatus === 'video_generating' && (
+        {/* ── 抖音逐帧审核模式：视频生成中 ── */}
+        {isDouyin && !isBatchMode && taskStatus === 'video_generating' && (
           <LoadingSpinner message={statusMessage || '正在合成视频，请稍候...'} />
         )}
 
-        {/* ── 抖音：视频审核 ── */}
-        {isDouyin && isVideoReview && (
+        {/* ── 抖音逐帧审核模式：视频审核 ── */}
+        {isDouyin && !isBatchMode && isVideoReview && (
           <div className="space-y-4">
             <DouyinVideoReview
               videoUrl={videoUrl}
@@ -225,14 +262,19 @@ export default function RightPanel({
         )}
 
         {/* ── 处理中（无预览时）── */}
-        {isProcessing && !preview && !isFrameReview && (
+        {isProcessing && !preview && !isFrameReview &&
+          !(isBatchMode && stepName === 'douyin_media_generating') && (
           <LoadingSpinner message={statusMessage} />
         )}
 
-        {/* ── 文案预览区（小红书全程 + 抖音稿件阶段）── */}
+        {/* ── 文案预览区（小红书全程 + 抖音逐帧审核模式稿件阶段）── */}
+        {/* 批量模式的 waiting_user_feedback 由 DouyinStoryboardReview 处理 */}
+        {/* 批量模式的 completed 由 DouyinProductionResult 处理 */}
         {(isWaiting || isCompleted || (isProcessing && preview)) &&
           !isImageReview && !isFrameReview && !isVideoReview &&
           !(isDouyin && (isFrameReview || isVideoReview || taskStatus === 'video_generating')) &&
+          !(isBatchMode && isWaiting && (storyboardDocument || preview?.text)) &&
+          !(isBatchMode && isCompleted && (downloadUrl || (fileList && fileList.length > 0))) &&
           preview && preview.text && (
           <div className="space-y-6">
             {/* 文案卡片 */}
