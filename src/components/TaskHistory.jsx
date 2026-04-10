@@ -103,9 +103,35 @@ function TaskDetailPanel({ task }) {
       {/* 最终预览图片 */}
       {task.preview?.images && task.preview.images.length > 0 && (
         <div>
-          <p className="mb-1 text-xs font-semibold text-gray-400 dark:text-gray-500">
-            图片（{task.preview.images.length} 张）
-          </p>
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-400 dark:text-gray-500">
+              图片（{task.preview.images.length} 张）
+            </p>
+            <button
+              onClick={async () => {
+                const images = task.preview.images
+                for (let i = 0; i < images.length; i++) {
+                  try {
+                    const res = await fetch(images[i])
+                    const blob = await res.blob()
+                    const ext = blob.type.split('/')[1] || 'jpg'
+                    const blobUrl = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = blobUrl
+                    a.download = `image_${i + 1}.${ext}`
+                    a.click()
+                    URL.revokeObjectURL(blobUrl)
+                    if (i < images.length - 1) await new Promise(r => setTimeout(r, 500))
+                  } catch {
+                    window.open(images[i], '_blank')
+                  }
+                }
+              }}
+              className="text-xs text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-medium"
+            >
+              批量下载
+            </button>
+          </div>
           <div className="flex flex-wrap gap-1">
             {task.preview.images.map((url, i) => (
               <a key={i} href={url} target="_blank" rel="noreferrer">
