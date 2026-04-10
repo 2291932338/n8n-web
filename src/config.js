@@ -8,11 +8,11 @@ const config = {
   // ========== 小红书接口地址（保持原有配置不变）==========
   XIAOHONGSHU: {
     // 启动工作流
-    START_WORKFLOW_URL: 'https://your-n8n-domain.com/webhook/start-workflow',
+    START_WORKFLOW_URL: 'http://8.130.32.43:5678/webhook/start-workflows',
     // 查询任务状态（异步轮询）
-    STATUS_QUERY_URL: 'https://your-n8n-domain.com/webhook/query-status',
+    STATUS_QUERY_URL: 'http://8.130.32.43:5678/webhook/lunxuns',
     // 用户操作回传（修改意见 / 确认继续）
-    USER_ACTION_URL: 'https://your-n8n-domain.com/webhook/user-action',
+    USER_ACTION_URL: 'http://8.130.32.43:5678/webhook/user-actions',
     // 重新生成图片（文案已确认，只重新生成配图）
     REGENERATE_IMAGE_URL: 'https://your-n8n-domain.com/webhook/xhs-regenerate-image',
   },
