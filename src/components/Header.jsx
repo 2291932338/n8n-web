@@ -1,18 +1,18 @@
-/**
- * 顶部标题栏
- * 包含项目名称、接口连接状态、任务状态、暗色模式切换
- */
-
 import config from '../config'
 
-export default function Header({ taskStatus, isDark, onToggleDark }) {
-  // 连接状态
+export default function Header({
+  taskStatus,
+  isDark,
+  onToggleDark,
+  user,
+  view = 'app',
+  onShowApp,
+  onShowAdmin,
+  onLogout,
+}) {
   const connectionLabel = config.MOCK_ENABLED ? 'Mock 模式' : '已连接'
-  const connectionColor = config.MOCK_ENABLED
-    ? 'bg-yellow-400'
-    : 'bg-green-400'
+  const connectionColor = config.MOCK_ENABLED ? 'bg-yellow-400' : 'bg-green-400'
 
-  // 任务状态映射
   const taskStatusLabels = {
     idle: null,
     submitting: '提交中',
@@ -23,11 +23,10 @@ export default function Header({ taskStatus, isDark, onToggleDark }) {
     failed: '失败',
   }
   const taskLabel = taskStatusLabels[taskStatus]
+  const isAdmin = user?.role === 'ADMIN'
 
   return (
-    <header className="flex items-center justify-between border-b border-gray-100 bg-white/80 px-6 py-3 backdrop-blur-sm
-      dark:border-gray-800 dark:bg-gray-900/80">
-      {/* 左侧：项目名称 */}
+    <header className="flex items-center justify-between border-b border-gray-100 bg-white/80 px-6 py-3 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/80">
       <div className="flex items-center gap-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600 dark:bg-primary-500">
           <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -42,38 +41,54 @@ export default function Header({ taskStatus, isDark, onToggleDark }) {
         </div>
       </div>
 
-      {/* 右侧：状态指示 + 主题切换 */}
-      <div className="flex items-center gap-4">
-        {/* 接口连接状态 */}
-        <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 dark:bg-gray-800">
+      <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 md:flex dark:bg-gray-800">
           <span className={`h-2 w-2 rounded-full ${connectionColor}`} />
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{connectionLabel}</span>
         </div>
 
-        {/* 当前任务状态 */}
-        {taskLabel && (
-          <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 dark:bg-gray-800">
+        {taskLabel && view === 'app' && (
+          <div className="hidden items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 md:flex dark:bg-gray-800">
             {(taskStatus === 'processing' || taskStatus === 'submitting' || taskStatus === 'revising') && (
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
             )}
             {taskStatus === 'waiting_user_feedback' && (
-              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse-slow" />
+              <span className="h-2 w-2 animate-pulse-slow rounded-full bg-purple-400" />
             )}
-            {taskStatus === 'completed' && (
-              <span className="h-2 w-2 rounded-full bg-green-400" />
-            )}
-            {taskStatus === 'failed' && (
-              <span className="h-2 w-2 rounded-full bg-red-400" />
-            )}
+            {taskStatus === 'completed' && <span className="h-2 w-2 rounded-full bg-green-400" />}
+            {taskStatus === 'failed' && <span className="h-2 w-2 rounded-full bg-red-400" />}
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{taskLabel}</span>
           </div>
         )}
 
-        {/* 暗色模式切换 */}
+        {user && (
+          <div className="hidden max-w-[220px] truncate rounded-lg bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-500 md:block dark:bg-gray-800 dark:text-gray-300">
+            {user.email}
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="flex rounded-lg border border-gray-100 p-1 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onShowApp}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition ${view === 'app' ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+            >
+              工作台
+            </button>
+            <button
+              type="button"
+              onClick={onShowAdmin}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition ${view === 'admin' ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+            >
+              管理
+            </button>
+          </div>
+        )}
+
         <button
           onClick={onToggleDark}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600
-            transition-colors dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           title={isDark ? '切换到浅色模式' : '切换到深色模式'}
         >
           {isDark ? (
@@ -87,6 +102,16 @@ export default function Header({ taskStatus, isDark, onToggleDark }) {
             </svg>
           )}
         </button>
+
+        {user && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-lg border border-gray-100 px-3 py-1.5 text-xs font-bold text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+          >
+            退出
+          </button>
+        )}
       </div>
     </header>
   )

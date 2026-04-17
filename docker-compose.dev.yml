@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: workflow-studio-postgres-dev
+    environment:
+      POSTGRES_DB: workflow_studio
+      POSTGRES_USER: workflow_user
+      POSTGRES_PASSWORD: workflow_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - workflow_postgres_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow_user -d workflow_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: workflow-studio-backend-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://workflow_user:workflow_password@postgres:5432/workflow_studio?schema=public
+      SESSION_SECRET: local-dev-session-secret-change-before-production
+      COOKIE_SECURE: "false"
+      FRONTEND_ORIGIN: http://localhost:3000
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_INITIAL_PASSWORD: change-this-password
+      N8N_TIMEOUT_MS: 60000
+      XHS_START_WORKFLOW_URL: http://8.130.32.43:5678/webhook/start-workflows
+      XHS_STATUS_QUERY_URL: http://8.130.32.43:5678/webhook/lunxuns
+      XHS_USER_ACTION_URL: http://8.130.32.43:5678/webhook/user-actions
+      XHS_REGENERATE_IMAGE_URL: http://8.130.32.43:5678/webhook/user-actions
+      DOUYIN_START_WORKFLOW_URL: http://8.130.32.43:5678/webhook/douyinstart
+      DOUYIN_STATUS_QUERY_URL: http://8.130.32.43:5678/webhook/douyinchaxun
+      DOUYIN_DOWNLOAD_URL: http://8.130.32.43:5678/webhook/douyin-download
+      DOUYIN_USER_ACTION_URL: http://8.130.32.43:5678/webhook/douyinyhcz
+      DOUYIN_FRAME_ACTION_URL: http://host.docker.internal:5678/webhook/douyin-frame-action
+      DOUYIN_GENERATE_VIDEO_URL: http://host.docker.internal:5678/webhook/douyin-generate-video
+      DOUYIN_REGENERATE_VIDEO_URL: http://host.docker.internal:5678/webhook/douyin-regenerate-video
+    ports:
+      - "4000:4000"
+
+volumes:
+  workflow_postgres_dev:

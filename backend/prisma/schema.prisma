@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TaskStatus {
+  PROCESSING
+  WAITING_USER_FEEDBACK
+  IMAGE_REVIEW
+  FRAME_REVIEW
+  VIDEO_GENERATING
+  VIDEO_REVIEW
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         UserRole   @default(USER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  lastLoginAt  DateTime?
+
+  tasks  WorkflowTask[]
+  events WorkflowEvent[]
+
+  @@index([role])
+  @@index([status])
+}
+
+model WorkflowTask {
+  id            String     @id @default(cuid())
+  userId        String
+  platform      String
+  workflowType  String?
+  taskId        String     @unique
+  status        TaskStatus @default(PROCESSING)
+  inputParams   Json?
+  resultPreview Json?
+  errorMessage  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  completedAt   DateTime?
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events WorkflowEvent[]
+
+  @@index([userId])
+  @@index([platform])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WorkflowEvent {
+  id        String   @id @default(cuid())
+  taskId    String?
+  userId    String
+  action    String
+  status    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  task WorkflowTask? @relation(fields: [taskId], references: [taskId], onDelete: SetNull)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
