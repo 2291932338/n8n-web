@@ -55,6 +55,7 @@ model WorkflowTask {
   inputParams   Json?
   resultPreview Json?
   errorMessage  String?
+  metadata      Json?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   completedAt   DateTime?
