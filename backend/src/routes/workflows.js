@@ -93,6 +93,15 @@ async function updateTaskFromResult(taskId, result) {
       resultPreview: result.preview || undefined,
       errorMessage: status === 'FAILED' ? (result.message || '工作流执行失败') : null,
       completedAt: isTerminal(status) ? new Date() : undefined,
+      metadata: {
+        downloadUrl: result.downloadUrl || null,
+        fileList: result.fileList || [],
+        storyboardDocument: result.storyboardDocument || null,
+        generationProgress: result.generationProgress || null,
+        stepName: result.stepName || null,
+        statusMessage: result.message || null,
+        raw: result,
+      },
     },
   })
 }

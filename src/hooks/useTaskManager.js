@@ -1,25 +1,41 @@
-/**
- * useTaskManager hook
- * 管理多个并发任务，维护活跃任务列表，并提供任务切换能力
- * 每个任务有独立的 useTask 实例（通过 key 强制重建）
- */
-
 import { useState, useCallback, useEffect } from 'react'
+import { getUserTask, getUserTasks } from '../authApi'
 import { getAllTasks, deleteTask, clearAllTasks, getTask } from '../taskStore'
 import { setUpdateListener } from '../backgroundPoller'
 
+const TERMINAL_STATUSES = new Set(['completed', 'failed'])
+
+function mergeTasks(localTasks, remoteTasks) {
+  const byId = new Map()
+  for (const task of localTasks || []) {
+    byId.set(task.taskId, task)
+  }
+  for (const task of remoteTasks || []) {
+    const existing = byId.get(task.taskId) || {}
+    byId.set(task.taskId, { ...existing, ...task })
+  }
+  return [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+}
+
 export function useTaskManager() {
   const [taskRecords, setTaskRecords] = useState(() => getAllTasks())
-  // key 变化时 App 层的 useTask 实例会重建
   const [activeTaskKey, setActiveTaskKey] = useState('task_0')
-  // 切换到已有任务时，传给 useTask 用于恢复状态
   const [selectedTaskRecord, setSelectedTaskRecord] = useState(null)
 
-  const refreshTaskRecords = useCallback(() => {
-    setTaskRecords(getAllTasks())
+  const refreshTaskRecords = useCallback(async () => {
+    const localTasks = getAllTasks()
+    try {
+      const result = await getUserTasks()
+      setTaskRecords(mergeTasks(localTasks, result.tasks || []))
+    } catch {
+      setTaskRecords(localTasks)
+    }
   }, [])
 
-  // 注册后台轮询监听器，后台任务状态变化时刷新列表
+  useEffect(() => {
+    refreshTaskRecords()
+  }, [refreshTaskRecords])
+
   useEffect(() => {
     setUpdateListener(refreshTaskRecords)
     return () => setUpdateListener(null)
@@ -30,9 +46,13 @@ export function useTaskManager() {
     setActiveTaskKey(`task_${Date.now()}`)
   }, [])
 
-  // 切换到已有任务（恢复状态并重启轮询）
-  const selectTask = useCallback((taskId) => {
-    const record = getTask(taskId)
+  const selectTask = useCallback(async (taskId) => {
+    const localRecord = getTask(taskId)
+    let record = localRecord
+    try {
+      const result = await getUserTask(taskId)
+      record = { ...(localRecord || {}), ...result.task }
+    } catch {}
     if (!record) return
     setSelectedTaskRecord(record)
     setActiveTaskKey(`task_${taskId}_${Date.now()}`)
@@ -40,12 +60,16 @@ export function useTaskManager() {
 
   const deleteTaskRecord = useCallback((taskId) => {
     deleteTask(taskId)
-    setTaskRecords(getAllTasks())
+    setTaskRecords((records) => records.filter((task) => task.taskId !== taskId))
   }, [])
 
   const clearTaskRecords = useCallback((platform) => {
     clearAllTasks(platform || null)
-    setTaskRecords(getAllTasks())
+    setTaskRecords((records) => records.filter((task) => {
+      if (!TERMINAL_STATUSES.has(task.status)) return true
+      if (!platform) return false
+      return task.platform !== platform
+    }))
   }, [])
 
   return {

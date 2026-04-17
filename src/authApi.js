@@ -60,3 +60,11 @@ export function updateUserStatus(id, status) {
     body: JSON.stringify({ status }),
   })
 }
+
+export function getUserTasks() {
+  return request('/api/tasks')
+}
+
+export function getUserTask(taskId) {
+  return request(`/api/tasks/${encodeURIComponent(taskId)}`)
+}
