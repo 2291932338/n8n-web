@@ -18,7 +18,7 @@ export const config = {
   port: Number(process.env.PORT || 4000),
   databaseUrl: required('DATABASE_URL'),
   sessionSecret: required('SESSION_SECRET', isProduction ? undefined : 'dev-only-session-secret'),
-  cookieSecure: process.env.COOKIE_SECURE === 'true' || isProduction,
+  cookieSecure: process.env.COOKIE_SECURE === 'true',
   frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
   adminEmail: process.env.ADMIN_EMAIL,
   adminInitialPassword: process.env.ADMIN_INITIAL_PASSWORD,
