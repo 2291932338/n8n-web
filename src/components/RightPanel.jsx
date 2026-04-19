@@ -154,6 +154,7 @@ export default function RightPanel({
   onRevise,
   onConfirm,
   onRetry,
+  onStopTask,
   onApproveXhsImage,
   onRejectXhsImage,
   onRegenImages,
@@ -173,6 +174,7 @@ export default function RightPanel({
   const isImageReview = taskStatus === 'image_review'
   const isFrameReview = taskStatus === 'frame_review'
   const isVideoReview = taskStatus === 'video_review'
+  const canStop = !isIdle && !isFailed && !isCompleted
 
   // 所有帧都通过时（allFramesApproved flag 来自轮询结果，存在 frames 内部判断或通过状态判断）
   const allFramesApproved = isFrameReview && frames && frames.length > 0 && frames.every(f => f.status === 'approved')
@@ -181,8 +183,24 @@ export default function RightPanel({
     <div className="flex h-full flex-col">
       {/* 状态栏 */}
       {!isIdle && (
-        <div className="mb-4 flex-shrink-0">
-          <StatusIndicator status={taskStatus} stepName={stepName} message={statusMessage} />
+        <div className="mb-4 flex flex-shrink-0 items-stretch gap-2">
+          <div className="min-w-0 flex-1">
+            <StatusIndicator status={taskStatus} stepName={stepName} message={statusMessage} />
+          </div>
+          {canStop && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('确定要停止当前任务吗？停止后平台将不再轮询该任务。')) {
+                  onStopTask?.()
+                }
+              }}
+              disabled={isActionSubmitting}
+              className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+            >
+              停止任务
+            </button>
+          )}
         </div>
       )}
 

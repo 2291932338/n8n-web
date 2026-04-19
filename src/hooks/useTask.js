@@ -14,6 +14,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
   startWorkflow,
+  cancelWorkflow,
   submitUserAction,
   regenerateImages,
   submitFrameAction,
@@ -649,7 +650,37 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
   }, [patch])
 
-  // ── 重置（重试）───────────────────────────────────────────
+  const stopTask = useCallback(async () => {
+    const { taskId, taskStatus } = stateRef.current
+    if (!taskId || TERMINAL_STATUSES.has(taskStatus)) return
+
+    const message = '任务已由用户停止'
+    patch({ isActionSubmitting: true, statusMessage: '正在停止任务...' })
+
+    try {
+      const result = await cancelWorkflow(taskId)
+      stopPolling()
+      if (delayTimerRef.current) {
+        clearTimeout(delayTimerRef.current)
+        delayTimerRef.current = null
+      }
+      unregisterTask(taskId)
+      approvingImageIndexRef.current = null
+      rejectingImageRef.current = null
+      actionLockRef.current = null
+      patch({
+        taskStatus: 'failed',
+        statusMessage: result.message || message,
+        errorMessage: result.message || message,
+        isActionSubmitting: false,
+      })
+    } catch (err) {
+      patch({
+        isActionSubmitting: false,
+        statusMessage: err.message || '停止任务失败，请稍后重试',
+      })
+    }
+  }, [patch, stopPolling])
   const reset = useCallback(() => {
     stopPolling()
     setState(INITIAL_STATE)
@@ -668,6 +699,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     triggerGenerateVideo,
     regenVideo,
     confirmVideo,
+    stopTask,
     reset,
   }
 }

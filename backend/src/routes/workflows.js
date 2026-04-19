@@ -23,6 +23,16 @@ function isTerminal(status) {
   return status === 'COMPLETED' || status === 'FAILED'
 }
 
+function terminalResult(task) {
+  const status = task.status.toLowerCase()
+  return {
+    success: status !== 'failed',
+    status,
+    message: task.errorMessage || (status === 'completed' ? '任务已完成' : '任务已结束'),
+    taskId: task.taskId,
+  }
+}
+
 async function parseResponse(res) {
   const text = await res.text()
   if (!text || text.trim() === '') {
@@ -166,6 +176,7 @@ workflowsRouter.get('/status', async (req, res, next) => {
     const taskId = String(req.query.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const url = `${urls.STATUS_QUERY_URL}?taskId=${encodeURIComponent(taskId)}`
@@ -178,11 +189,44 @@ workflowsRouter.get('/status', async (req, res, next) => {
   }
 })
 
+workflowsRouter.post('/cancel', async (req, res, next) => {
+  try {
+    const taskId = String(req.body?.taskId || '')
+    const task = await findOwnedTask(req.user.id, taskId)
+    if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
+
+    const message = '任务已由用户停止'
+    const metadata = {
+      ...(task.metadata && typeof task.metadata === 'object' ? task.metadata : {}),
+      statusMessage: message,
+      stoppedAt: new Date().toISOString(),
+      stoppedByUserId: req.user.id,
+    }
+
+    await prisma.workflowTask.update({
+      where: { taskId },
+      data: {
+        status: 'FAILED',
+        errorMessage: message,
+        completedAt: new Date(),
+        metadata,
+      },
+    })
+    await recordEvent({ userId: req.user.id, taskId, action: 'cancel', status: 'success', metadata: { message } })
+
+    res.json({ success: true, status: 'failed', message, taskId })
+  } catch (err) {
+    next(err)
+  }
+})
+
 workflowsRouter.post('/action', async (req, res, next) => {
   try {
     const taskId = String(req.body?.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const body = {
@@ -205,6 +249,7 @@ workflowsRouter.post('/regenerate-images', async (req, res, next) => {
     const taskId = String(req.body?.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.REGENERATE_IMAGE_URL, {
@@ -223,6 +268,7 @@ workflowsRouter.post('/frame-action', async (req, res, next) => {
     const taskId = String(req.body?.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.FRAME_ACTION_URL, {
@@ -243,6 +289,7 @@ workflowsRouter.post('/generate-video', async (req, res, next) => {
     const taskId = String(req.body?.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.GENERATE_VIDEO_URL, {
@@ -262,6 +309,7 @@ workflowsRouter.post('/regenerate-video', async (req, res, next) => {
     const taskId = String(req.body?.taskId || '')
     const task = await findOwnedTask(req.user.id, taskId)
     if (!task) return res.status(404).json({ success: false, message: '任务不存在或无权访问' })
+    if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.REGENERATE_VIDEO_URL, { taskId })

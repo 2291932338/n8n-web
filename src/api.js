@@ -60,6 +60,17 @@ export async function queryStatus(taskId, platform) {
   return apiRequest(`/api/workflows/status?taskId=${encodeURIComponent(taskId)}&platform=${encodeURIComponent(platform || '')}`)
 }
 
+export async function cancelWorkflow(taskId) {
+  if (config.MOCK_ENABLED) {
+    return { success: true, status: 'failed', message: '任务已由用户停止', taskId }
+  }
+
+  return apiRequest('/api/workflows/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ taskId }),
+  })
+}
+
 export async function submitUserAction(taskId, action, feedback = '', previousText = '', platform = 'xiaohongshu') {
   if (config.MOCK_ENABLED) {
     return mockUserAction(taskId, action, feedback)

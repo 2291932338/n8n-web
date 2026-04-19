@@ -73,6 +73,7 @@ function TaskInstance({
           onRevise={task.revise}
           onConfirm={task.confirm}
           onRetry={task.reset}
+          onStopTask={task.stopTask}
           onApproveXhsImage={task.approveXhsImage}
           onRejectXhsImage={task.rejectXhsImage}
           onRegenImages={task.regenImages}
@@ -110,6 +111,7 @@ function TaskInstance({
           onRevise={task.revise}
           onConfirm={task.confirm}
           onRetry={task.reset}
+          onStopTask={task.stopTask}
           onApproveXhsImage={task.approveXhsImage}
           onRejectXhsImage={task.rejectXhsImage}
           onRegenImages={task.regenImages}
