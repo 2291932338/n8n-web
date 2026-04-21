@@ -20,6 +20,13 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       N8N_TIMEOUT_MS: ${N8N_TIMEOUT_MS:-60000}
+      JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-15mb}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/app/storage/uploads}
+      UPLOADS_PUBLIC_PATH: ${UPLOADS_PUBLIC_PATH:-/uploads}
+      MAX_REFERENCE_IMAGE_BYTES: ${MAX_REFERENCE_IMAGE_BYTES:-3145728}
+      MAX_REFERENCE_IMAGE_COUNT: ${MAX_REFERENCE_IMAGE_COUNT:-3}
+      MAX_REFERENCE_IMAGE_REQUESTS: ${MAX_REFERENCE_IMAGE_REQUESTS:-30}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
       XHS_START_WORKFLOW_URL: ${XHS_START_WORKFLOW_URL}
@@ -33,6 +40,8 @@ services:
       DOUYIN_FRAME_ACTION_URL: ${DOUYIN_FRAME_ACTION_URL}
       DOUYIN_GENERATE_VIDEO_URL: ${DOUYIN_GENERATE_VIDEO_URL}
       DOUYIN_REGENERATE_VIDEO_URL: ${DOUYIN_REGENERATE_VIDEO_URL}
+    volumes:
+      - workflow_uploads_data:/app/storage/uploads
     restart: unless-stopped
 
   workflow-postgres:
@@ -52,3 +61,4 @@ services:
 
 volumes:
   workflow_postgres_data:
+  workflow_uploads_data:

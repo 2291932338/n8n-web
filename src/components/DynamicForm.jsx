@@ -1,98 +1,225 @@
-/**
- * 动态表单组件
- * 根据 schema 配置自动渲染表单字段
- */
-
 import { useState, useEffect, useCallback } from 'react'
 import config from '../config'
+
+function createEmptyValues(schema) {
+  return schema.reduce((acc, field) => {
+    acc[field.name] = field.type === 'file' ? [] : (field.defaultValue || '')
+    return acc
+  }, {})
+}
+
+function serializeFormData(schema, formData) {
+  return schema.reduce((acc, field) => {
+    acc[field.name] = field.type === 'file' ? [] : (formData[field.name] ?? field.defaultValue ?? '')
+    return acc
+  }, {})
+}
+
+function hasValue(field, value) {
+  if (field.type === 'file') {
+    return Array.isArray(value) && value.length > 0
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  return value !== null && value !== undefined && value !== ''
+}
+
+function formatFileSize(size) {
+  if (!Number.isFinite(size) || size <= 0) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
 
 export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }) {
   const storageKey = `${config.STORAGE_PREFIX}form_${platform}`
 
-  // 从 localStorage 恢复或使用默认值初始化表单数据
   const getInitialValues = useCallback(() => {
+    const baseValues = createEmptyValues(schema)
+
     try {
       const saved = localStorage.getItem(storageKey)
-      if (saved) return JSON.parse(saved)
-    } catch {}
-    const values = {}
-    schema.forEach((field) => {
-      values[field.name] = field.defaultValue || ''
-    })
-    return values
+      if (!saved) return baseValues
+
+      const parsed = JSON.parse(saved)
+      return schema.reduce((acc, field) => {
+        acc[field.name] = field.type === 'file'
+          ? []
+          : (parsed[field.name] ?? baseValues[field.name])
+        return acc
+      }, { ...baseValues })
+    } catch {
+      return baseValues
+    }
   }, [schema, storageKey])
 
   const [formData, setFormData] = useState(getInitialValues)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
 
-  // 平台或 schema 切换时重新加载
   useEffect(() => {
     setFormData(getInitialValues())
     setErrors({})
     setTouched({})
   }, [platform, getInitialValues])
 
-  // 自动保存到 localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(formData))
+      localStorage.setItem(storageKey, JSON.stringify(serializeFormData(schema, formData)))
     } catch {}
-  }, [formData, storageKey])
+  }, [formData, schema, storageKey])
+
+  const clearError = useCallback((name) => {
+    setErrors((prev) => {
+      if (!prev[name]) return prev
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }, [])
 
   const handleChange = (name, value) => {
     setFormData((prev) => ({ ...prev, [name]: value }))
-    // 清除该字段的错误
-    if (errors[name]) {
-      setErrors((prev) => {
-        const next = { ...prev }
-        delete next[name]
-        return next
-      })
+    clearError(name)
+  }
+
+  const handleFileChange = (field, event) => {
+    const maxFiles = field.maxFiles || 3
+    const maxFileSizeBytes = field.maxFileSizeBytes || (3 * 1024 * 1024)
+    const acceptedTypes = (field.accept || 'image/*').split(',').map((item) => item.trim()).filter(Boolean)
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+
+    if (files.length > maxFiles) {
+      setTouched((prev) => ({ ...prev, [field.name]: true }))
+      setErrors((prev) => ({ ...prev, [field.name]: `最多上传 ${maxFiles} 张图片` }))
+      return
     }
+
+    const invalidFile = files.find((file) => {
+      const typeMatches = acceptedTypes.some((type) => type === 'image/*' || file.type === type)
+      return !typeMatches || file.size > maxFileSizeBytes
+    })
+
+    if (invalidFile) {
+      const message = invalidFile.size > maxFileSizeBytes
+        ? `单张图片不能超过 ${formatFileSize(maxFileSizeBytes)}`
+        : '仅支持 PNG、JPG、WEBP 图片'
+      setTouched((prev) => ({ ...prev, [field.name]: true }))
+      setErrors((prev) => ({ ...prev, [field.name]: message }))
+      return
+    }
+
+    handleChange(field.name, files)
+    setTouched((prev) => ({ ...prev, [field.name]: true }))
+  }
+
+  const handleRemoveFile = (fieldName, index) => {
+    setFormData((prev) => ({
+      ...prev,
+      [fieldName]: (prev[fieldName] || []).filter((_, fileIndex) => fileIndex !== index),
+    }))
   }
 
   const handleBlur = (name) => {
     setTouched((prev) => ({ ...prev, [name]: true }))
-    // 单字段校验
-    const field = schema.find((f) => f.name === name)
-    if (field?.required && !formData[name]?.trim()) {
-      setErrors((prev) => ({ ...prev, [name]: `请填写${field.label}` }))
+    const field = schema.find((item) => item.name === name)
+    if (field?.required && !hasValue(field, formData[name])) {
+      setErrors((prev) => ({ ...prev, [name]: `请填写 ${field.label}` }))
     }
   }
 
   const validate = () => {
-    const newErrors = {}
+    const nextErrors = {}
+    const nextTouched = {}
+
     schema.forEach((field) => {
-      if (field.required && !formData[field.name]?.trim()) {
-        newErrors[field.name] = `请填写${field.label}`
+      nextTouched[field.name] = true
+      if (field.required && !hasValue(field, formData[field.name])) {
+        nextErrors[field.name] = `请填写 ${field.label}`
       }
     })
-    setErrors(newErrors)
-    // 标记所有字段为已触碰
-    const allTouched = {}
-    schema.forEach((f) => { allTouched[f.name] = true })
-    setTouched(allTouched)
-    return Object.keys(newErrors).length === 0
+
+    setTouched(nextTouched)
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
   }
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
+  const handleSubmit = (event) => {
+    event.preventDefault()
     if (!validate()) return
     onSubmit(formData)
   }
 
   const handleReset = () => {
-    const values = {}
-    schema.forEach((field) => {
-      values[field.name] = field.defaultValue || ''
-    })
-    setFormData(values)
+    setFormData(createEmptyValues(schema))
     setErrors({})
     setTouched({})
     try {
       localStorage.removeItem(storageKey)
     } catch {}
+  }
+
+  const renderFileField = (field, baseInputClass, hasError) => {
+    const files = Array.isArray(formData[field.name]) ? formData[field.name] : []
+    const maxFiles = field.maxFiles || 3
+    const maxFileSizeBytes = field.maxFileSizeBytes || (3 * 1024 * 1024)
+
+    return (
+      <div className="space-y-3">
+        <label className={`${baseInputClass} flex cursor-pointer flex-col items-center justify-center gap-2 border-dashed text-center`}>
+          <input
+            type="file"
+            accept={field.accept || 'image/*'}
+            multiple={maxFiles > 1}
+            className="hidden"
+            onChange={(event) => handleFileChange(field, event)}
+            onBlur={() => handleBlur(field.name)}
+            disabled={isSubmitting}
+          />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            点击上传参考图片
+          </span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            支持 PNG / JPG / WEBP，最多 {maxFiles} 张，单张不超过 {formatFileSize(maxFileSizeBytes)}
+          </span>
+        </label>
+
+        {field.helperText && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">{field.helperText}</p>
+        )}
+
+        {files.length > 0 && (
+          <div className="space-y-2">
+            {files.map((file, index) => (
+              <div
+                key={`${field.name}_${file.name}_${index}`}
+                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${hasError
+                  ? 'border-red-200 bg-red-50 dark:border-red-500/40 dark:bg-red-500/10'
+                  : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60'
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-gray-700 dark:text-gray-100">{file.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(file.size)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveFile(field.name, index)}
+                  disabled={isSubmitting}
+                  className="ml-3 shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-500 transition hover:border-gray-300 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-gray-100"
+                >
+                  移除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const renderField = (field) => {
@@ -112,7 +239,7 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
         return (
           <textarea
             value={formData[field.name] || ''}
-            onChange={(e) => handleChange(field.name, e.target.value)}
+            onChange={(event) => handleChange(field.name, event.target.value)}
             onBlur={() => handleBlur(field.name)}
             placeholder={field.placeholder}
             rows={3}
@@ -125,14 +252,14 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
         return (
           <select
             value={formData[field.name] || ''}
-            onChange={(e) => handleChange(field.name, e.target.value)}
+            onChange={(event) => handleChange(field.name, event.target.value)}
             onBlur={() => handleBlur(field.name)}
             className={`${baseInputClass} appearance-none cursor-pointer bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-width%3D%222%22%3E%3Cpath%20d%3D%22M6%209l6%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_12px_center] bg-no-repeat pr-10`}
             disabled={isSubmitting}
           >
             <option value="">{field.placeholder}</option>
-            {field.options?.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
+            {field.options?.map((option) => (
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
         )
@@ -142,7 +269,7 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
           <input
             type="number"
             value={formData[field.name] || ''}
-            onChange={(e) => handleChange(field.name, e.target.value)}
+            onChange={(event) => handleChange(field.name, event.target.value)}
             onBlur={() => handleBlur(field.name)}
             placeholder={field.placeholder}
             min={field.min}
@@ -152,12 +279,15 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
           />
         )
 
+      case 'file':
+        return renderFileField(field, baseInputClass, hasError)
+
       default:
         return (
           <input
             type="text"
             value={formData[field.name] || ''}
-            onChange={(e) => handleChange(field.name, e.target.value)}
+            onChange={(event) => handleChange(field.name, event.target.value)}
             onBlur={() => handleBlur(field.name)}
             placeholder={field.placeholder}
             className={baseInputClass}
@@ -174,12 +304,12 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
             {field.label}
             {field.required && (
-              <span className="text-red-500 text-xs">*</span>
+              <span className="text-xs text-red-500">*</span>
             )}
           </label>
           {renderField(field)}
           {touched[field.name] && errors[field.name] && (
-            <p className="mt-1 text-xs text-red-500 animate-fade-in">
+            <p className="mt-1 animate-fade-in text-xs text-red-500">
               {errors[field.name]}
             </p>
           )}
@@ -190,13 +320,7 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
         <button
           type="submit"
           disabled={isSubmitting}
-          className="flex-1 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white
-            shadow-lg shadow-primary-600/25
-            hover:bg-primary-700 hover:shadow-primary-700/30
-            active:scale-[0.98]
-            disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-primary-600
-            transition-all duration-200
-            dark:bg-primary-500 dark:hover:bg-primary-600 dark:shadow-primary-500/20"
+          className="flex-1 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-600/25 transition-all duration-200 hover:bg-primary-700 hover:shadow-primary-700/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-primary-600 dark:bg-primary-500 dark:shadow-primary-500/20 dark:hover:bg-primary-600"
         >
           {isSubmitting ? (
             <span className="flex items-center justify-center gap-2">
@@ -215,12 +339,7 @@ export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }
           type="button"
           onClick={handleReset}
           disabled={isSubmitting}
-          className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-600
-            hover:bg-gray-50 hover:border-gray-300
-            active:scale-[0.98]
-            disabled:opacity-50 disabled:cursor-not-allowed
-            transition-all duration-200
-            dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:border-gray-500"
+          className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-600 transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:bg-gray-700"
         >
           重置
         </button>

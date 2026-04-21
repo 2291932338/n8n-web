@@ -125,6 +125,15 @@ export const xiaohongshuSchema = [
     required: false,
   },
   {
+    name: '参考图片',
+    label: '参考图片',
+    type: 'file',
+    required: false,
+    accept: 'image/png,image/jpeg,image/webp',
+    maxFiles: 3,
+    helperText: '可上传 1-3 张参考图，系统会先上传并转换成可供 AI 读取的 URL。',
+  },
+  {
     name: '补充说明',
     label: '补充说明',
     type: 'textarea',
@@ -286,6 +295,15 @@ export const douyinSchema = [
     type: 'textarea',
     placeholder: '填写参考视频链接或创意灵感描述（选填）',
     required: false,
+  },
+  {
+    name: '参考图片',
+    label: '参考图片',
+    type: 'file',
+    required: false,
+    accept: 'image/png,image/jpeg,image/webp',
+    maxFiles: 3,
+    helperText: '可上传 1-3 张参考图，系统会先上传并转换成可供 AI 生图使用的 URL。',
   },
   {
     name: '补充说明',

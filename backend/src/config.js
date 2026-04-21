@@ -1,3 +1,4 @@
+import path from 'path'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -12,6 +13,11 @@ function required(name, fallback = undefined) {
   return value
 }
 
+function normalizePublicPath(value) {
+  if (!value) return '/uploads'
+  return value.startsWith('/') ? value : `/${value}`
+}
+
 export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProduction,
@@ -23,6 +29,14 @@ export const config = {
   adminEmail: process.env.ADMIN_EMAIL,
   adminInitialPassword: process.env.ADMIN_INITIAL_PASSWORD,
   n8nTimeoutMs: Number(process.env.N8N_TIMEOUT_MS || 60000),
+  jsonBodyLimit: process.env.JSON_BODY_LIMIT || '15mb',
+  publicBaseUrl: required('PUBLIC_BASE_URL', isProduction ? undefined : '').replace(/\/$/, ''),
+  uploadsDir: process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'storage', 'uploads'),
+  uploadsPublicPath: normalizePublicPath(process.env.UPLOADS_PUBLIC_PATH),
+  maxReferenceImageBytes: Number(process.env.MAX_REFERENCE_IMAGE_BYTES || 3145728),
+  maxReferenceImageCount: Number(process.env.MAX_REFERENCE_IMAGE_COUNT || 3),
+  maxReferenceImageRequestsPerWindow: Number(process.env.MAX_REFERENCE_IMAGE_REQUESTS || 30),
+  allowedReferenceImageTypes: ['image/png', 'image/jpeg', 'image/webp'],
   webhooks: {
     xiaohongshu: {
       START_WORKFLOW_URL: process.env.XHS_START_WORKFLOW_URL,

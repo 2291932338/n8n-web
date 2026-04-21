@@ -7,6 +7,7 @@ import { config } from './config.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
 import { tasksRouter } from './routes/tasks.js'
+import { uploadsRouter } from './routes/uploads.js'
 import { workflowsRouter } from './routes/workflows.js'
 
 export function createApp() {
@@ -18,9 +19,15 @@ export function createApp() {
     origin: config.frontendOrigin,
     credentials: true,
   }))
-  app.use(express.json({ limit: '1mb' }))
+  app.use(express.json({ limit: config.jsonBodyLimit }))
   app.use(cookieParser())
   app.use(morgan(config.isProduction ? 'combined' : 'dev'))
+  app.use(config.uploadsPublicPath, express.static(config.uploadsDir, {
+    dotfiles: 'deny',
+    fallthrough: true,
+    index: false,
+    maxAge: config.isProduction ? '7d' : 0,
+  }))
 
   app.get('/health', (_req, res) => {
     res.json({ success: true, service: 'workflow-studio-backend' })
@@ -29,6 +36,7 @@ export function createApp() {
   app.use('/api/auth', authRouter)
   app.use('/api/admin', adminRouter)
   app.use('/api/tasks', tasksRouter)
+  app.use('/api/uploads', uploadsRouter)
   app.use('/api/workflows', workflowsRouter)
 
   app.use((_req, res) => {

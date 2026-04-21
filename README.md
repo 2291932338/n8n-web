@@ -32,6 +32,16 @@ WorkflowStudio 是一个 **AI 内容生成工作台**，支持：
 | 后端 | n8n 工作流自动化 |
 | 部署 | Docker (Nginx) + GitHub Actions |
 
+### 可选：参考图片上传
+
+小红书和抖音表单现在都支持上传 1-3 张参考图片。前端会先调用后端上传接口，将图片保存为静态资源，再把以下字段一起传给 n8n：
+
+- 参考图片URL：第一张参考图的绝对 URL
+- 参考图片URLs：全部参考图 URL 数组
+- 参考图片详情：包含 url、name、type、size 的对象数组
+
+> 重要：PUBLIC_BASE_URL 必须配置成外网可访问域名，例如 https://your-domain.com。如果返回的是 localhost 或内网地址，外部 AI 服务将无法读取参考图。
+
 ---
 
 ## 2. 异步通信架构

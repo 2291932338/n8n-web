@@ -52,3 +52,5 @@ The backend image runs `prisma migrate deploy` and `seed:admin` on startup. If t
 - Use a strong `POSTGRES_PASSWORD` and `SESSION_SECRET`.
 - If you use HTTPS, set `COOKIE_SECURE=true` and `FRONTEND_ORIGIN=https://your-domain`.
 - Keep n8n webhook URLs only in server `.env`, not in frontend source.
+- Set PUBLIC_BASE_URL to the externally reachable backend domain so uploaded reference images resolve to public URLs.
+- Mount or persist UPLOADS_DIR in production if reference images need to survive container restarts.

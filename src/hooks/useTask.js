@@ -20,6 +20,8 @@ import {
   submitFrameAction,
   generateVideo,
   regenerateVideo,
+  uploadReferenceImages,
+  deleteReferenceImages,
 } from '../api'
 import { usePoller } from './usePoller'
 import { saveTask } from '../taskStore'
@@ -57,6 +59,38 @@ const INITIAL_STATE = {
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
+const REFERENCE_IMAGE_FIELD = '参考图片'
+
+function splitReferenceImages(formData = {}) {
+  const referenceFiles = Array.isArray(formData[REFERENCE_IMAGE_FIELD])
+    ? formData[REFERENCE_IMAGE_FIELD].filter(Boolean)
+    : []
+
+  const serializableFormData = Object.entries(formData).reduce((acc, [key, value]) => {
+    if (key === REFERENCE_IMAGE_FIELD) return acc
+    acc[key] = value
+    return acc
+  }, {})
+
+  if (referenceFiles.length > 0) {
+    serializableFormData['参考图片文件名'] = referenceFiles.map((file) => file.name).join('、')
+  }
+
+  return { referenceFiles, serializableFormData }
+}
+
+function withReferenceImageParams(formData, uploadedFiles) {
+  if (!Array.isArray(uploadedFiles) || uploadedFiles.length === 0) {
+    return { ...formData }
+  }
+
+  return {
+    ...formData,
+    参考图片URL: uploadedFiles[0]?.url || '',
+    参考图片URLs: uploadedFiles.map((file) => file.url),
+    参考图片详情: uploadedFiles.map(({ url, name, type, size }) => ({ url, name, type, size })),
+  }
+}
 
 /**
  * 从持久化的任务记录恢复初始状态
@@ -377,11 +411,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   // ── 提交表单 ───────────────────────────────────────────────
   const submit = useCallback((platform, formData) => {
     const createdAt = Date.now()
-    // 前端预生成 sessionId，作为 taskId 立即使用，不等待 n8n 响应
     const sessionId = uuidv4()
+    const { referenceFiles, serializableFormData } = splitReferenceImages(formData)
+    const workflowMode = (platform === 'douyin' && serializableFormData['工作流模式'] === '逐帧审核模式') ? 'interactive' : 'batch'
     isFirstReviseRef.current = true
 
-    // 若当前已有运行中的任务，先移交后台轮询，避免成为孤儿任务
     const prev = stateRef.current
     if (prev.taskId && !TERMINAL_STATUSES.has(prev.taskStatus) && prev.taskStatus !== 'idle' && prev.taskStatus !== 'submitting') {
       stopPolling()
@@ -389,36 +423,53 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       registerTask(prev.taskId, prev.platform)
     }
 
-    // 清除旧的锁状态
     approvingImageIndexRef.current = null
     rejectingImageRef.current = null
     actionLockRef.current = null
 
-    // 立即切换到 processing，表单马上解锁（不再 await HTTP 请求）
     patch({
       taskId: sessionId,
       platform,
-      formParams: formData,
+      formParams: serializableFormData,
       taskStatus: 'processing',
-      statusMessage: '工作流已启动，正在生成内容...',
+      statusMessage: referenceFiles.length > 0 ? '正在上传参考图片...' : '工作流已启动，正在生成内容...',
       createdAt,
-      workflowMode: (platform === 'douyin' && formData['工作流模式'] === '逐帧审核模式') ? 'interactive' : 'batch',
+      workflowMode,
     })
 
-    // 立即开始轮询（n8n 收到请求后会用同一个 sessionId 存数据）
-    startForegroundPolling(sessionId, platform)
+    let uploadedStorageKeys = []
 
-    // 后台发送请求，不阻塞 UI
-    startWorkflow(platform, sessionId, formData).then(result => {
+    ;(async () => {
+      let uploadedFiles = []
+
+      if (referenceFiles.length > 0) {
+        const uploadResult = await uploadReferenceImages(referenceFiles, platform)
+        uploadedFiles = Array.isArray(uploadResult.files) ? uploadResult.files : []
+        uploadedStorageKeys = uploadedFiles.map((file) => file.storageKey).filter(Boolean)
+      }
+
+      const workflowParams = withReferenceImageParams(serializableFormData, uploadedFiles)
+      patch({
+        formParams: workflowParams,
+        statusMessage: uploadedFiles.length > 0 ? '参考图片已上传，正在启动工作流...' : '工作流已启动，正在生成内容...',
+      })
+
+      startForegroundPolling(sessionId, platform)
+      const result = await startWorkflow(platform, sessionId, workflowParams)
       if (!result.success) {
+        if (uploadedStorageKeys.length > 0) {
+          deleteReferenceImages(uploadedStorageKeys).catch(() => {})
+        }
         patch({
           taskStatus: 'failed',
           errorMessage: result.message || '启动工作流失败',
         })
         stopPolling()
       }
-      // 成功时不做任何事，轮询会自动更新状态
-    }).catch(err => {
+    })().catch((err) => {
+      if (uploadedStorageKeys.length > 0) {
+        deleteReferenceImages(uploadedStorageKeys).catch(() => {})
+      }
       patch({
         taskStatus: 'failed',
         errorMessage: err.message || '提交失败，请检查网络连接',

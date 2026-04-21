@@ -8,3 +8,6 @@ Thumbs.db
 !.env.example
 
 .npm-cache
+
+backend/storage/uploads/
+storage/uploads/

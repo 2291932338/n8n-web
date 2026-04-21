@@ -41,6 +41,61 @@ async function apiRequest(path, options = {}) {
   return data
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function uploadReferenceImages(files, platform = 'xiaohongshu') {
+  const imageFiles = Array.isArray(files) ? files.filter(Boolean) : []
+  if (imageFiles.length === 0) {
+    return { success: true, files: [] }
+  }
+
+  if (config.MOCK_ENABLED) {
+    return {
+      success: true,
+      files: imageFiles.map((file, index) => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        url: `https://placehold.co/1024x1024/png?text=${encodeURIComponent(`reference-${index + 1}`)}`,
+      })),
+    }
+  }
+
+  const payloadFiles = await Promise.all(imageFiles.map(async (file) => ({
+    name: file.name,
+    type: file.type,
+    dataUrl: await readFileAsDataUrl(file),
+  })))
+
+  return apiRequest('/api/uploads/reference-images', {
+    method: 'POST',
+    body: JSON.stringify({ platform, files: payloadFiles }),
+  })
+}
+
+export async function deleteReferenceImages(storageKeys = []) {
+  const keys = Array.isArray(storageKeys) ? storageKeys.filter(Boolean) : []
+  if (keys.length === 0) {
+    return { success: true, deletedCount: 0 }
+  }
+
+  if (config.MOCK_ENABLED) {
+    return { success: true, deletedCount: keys.length }
+  }
+
+  return apiRequest('/api/uploads/reference-images', {
+    method: 'DELETE',
+    body: JSON.stringify({ storageKeys: keys }),
+  })
+}
+
 export async function startWorkflow(platform, sessionId, params) {
   if (config.MOCK_ENABLED) {
     return mockStartWorkflow(platform, sessionId, params)
