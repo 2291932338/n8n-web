@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 全局配置文件
  * 所有接口地址、轮询间隔、开关等集中管理
  * 小红书和抖音的 n8n Webhook 地址相互独立，修改时请分别配置对应平台
@@ -73,8 +73,10 @@ const config = {
  * @param {'xiaohongshu' | 'douyin'} platform
  */
 export function getUrlsForPlatform(platform) {
-  if (platform === 'douyin') return config.DOUYIN
+  if (['douyin', 'kuaishou', 'bilibili'].includes(platform)) return config.DOUYIN
   return config.XIAOHONGSHU
 }
 
 export default config
+
+

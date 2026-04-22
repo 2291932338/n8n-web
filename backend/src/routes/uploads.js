@@ -1,4 +1,4 @@
-import path from 'path'
+﻿import path from 'path'
 import { randomUUID } from 'crypto'
 import { promises as fs } from 'fs'
 import express from 'express'
@@ -27,7 +27,11 @@ uploadsRouter.use(rateLimit({
 }))
 
 function getPlatform(value) {
-  return value === 'douyin' ? 'douyin' : 'xiaohongshu'
+  const platform = String(value || '').toLowerCase()
+  if (['douyin', 'kuaishou', 'bilibili', 'xiaohongshu', 'zhihu', 'wechat'].includes(platform)) {
+    return platform
+  }
+  return 'xiaohongshu'
 }
 
 function getPublicOrigin(req) {
@@ -164,3 +168,6 @@ uploadsRouter.delete('/reference-images', async (req, res, next) => {
     next(err)
   }
 })
+
+
+

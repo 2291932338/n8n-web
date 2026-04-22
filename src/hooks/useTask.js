@@ -27,6 +27,8 @@ import { usePoller } from './usePoller'
 import { saveTask } from '../taskStore'
 import { registerTask, unregisterTask, isRegistered } from '../backgroundPoller'
 
+import { isVideoPlatform } from '../platforms'
+
 const INITIAL_STATE = {
   taskId: null,
   platform: 'xiaohongshu',
@@ -205,7 +207,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     const cur = stateRef.current
-    const isDouyin = cur.platform === 'douyin'
+    const isVideo = isVideoPlatform(cur.platform)
 
     // 公共字段
     const common = {
@@ -222,7 +224,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     // 小红书：逐张审图
-    if (!isDouyin && result.stepName === 'xhs_image_review') {
+    if (!isVideo && result.stepName === 'xhs_image_review') {
       const incomingIndex = result.currentImageIndex ?? cur.currentXhsImageIndex
       const incomingImages = result.xhsImages || cur.xhsImages
 
@@ -258,7 +260,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     // 抖音特殊 stepName 处理
-    if (isDouyin) {
+    if (isVideo) {
       // ── 批量模式：分镜文档生成中 ──
       if (result.stepName === 'douyin_storyboard_generating') {
         patch({
@@ -319,10 +321,10 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
     if (result.status === 'completed') {
       const updates = { ...common, taskStatus: 'completed', preview: result.preview || cur.preview }
-      if (isDouyin && result.videoUrl) updates.videoUrl = result.videoUrl
-      if (isDouyin && result.downloadUrl) updates.downloadUrl = result.downloadUrl
-      if (isDouyin && result.fileList) updates.fileList = result.fileList
-      if (isDouyin && result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
+      if (isVideo && result.videoUrl) updates.videoUrl = result.videoUrl
+      if (isVideo && result.downloadUrl) updates.downloadUrl = result.downloadUrl
+      if (isVideo && result.fileList) updates.fileList = result.fileList
+      if (isVideo && result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
       patch(updates)
       return
     }
@@ -335,7 +337,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         preview: newPreview,
       }
       // 批量模式：保存分镜文档
-      if (isDouyin && result.storyboardDocument) {
+      if (isVideo && result.storyboardDocument) {
         updates.storyboardDocument = result.storyboardDocument
       }
       // 如果是初稿（previewHistory 为空），自动记录
@@ -413,7 +415,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     const createdAt = Date.now()
     const sessionId = uuidv4()
     const { referenceFiles, serializableFormData } = splitReferenceImages(formData)
-    const workflowMode = (platform === 'douyin' && serializableFormData['工作流模式'] === '逐帧审核模式') ? 'interactive' : 'batch'
+    const workflowMode = (isVideoPlatform(platform) && serializableFormData['\u5de5\u4f5c\u6d41\u6a21\u5f0f'] === '\u9010\u5e27\u5ba1\u6838\u6a21\u5f0f') ? 'interactive' : 'batch'
     isFirstReviseRef.current = true
 
     const prev = stateRef.current
@@ -456,7 +458,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
       startForegroundPolling(sessionId, platform)
       const result = await startWorkflow(platform, sessionId, workflowParams)
-      if (!result.success) {
+      if (result?.success === false) {
         if (uploadedStorageKeys.length > 0) {
           deleteReferenceImages(uploadedStorageKeys).catch(() => {})
         }
@@ -511,7 +513,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     // confirm + generate 两个请求串行，总时长可能较长，锁定10分钟
     actionLockRef.current = { prevStatus: 'waiting_user_feedback', lockedAt: Date.now(), lockDurationMs: 600000 }
 
-    const isBatchMode = platform === 'douyin' && workflowMode === 'batch'
+    const isBatchMode = isVideoPlatform(platform) && workflowMode === 'batch'
     patch({
       isActionSubmitting: false,
       taskStatus: 'processing',
@@ -616,7 +618,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       patch({ frames: updatedFrames })
 
       const result = await submitFrameAction(taskId, frameIndex, 'approve', '', platform)
-      if (!result.success) {
+      if (result?.success === false) {
         patch({ isActionSubmitting: false, statusMessage: result.message || '审核提交失败' })
         return
       }
@@ -636,7 +638,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       patch({ frames: updatedFrames })
 
       const result = await submitFrameAction(taskId, frameIndex, 'reject', feedback, platform)
-      if (!result.success) {
+      if (result?.success === false) {
         patch({ isActionSubmitting: false, statusMessage: result.message || '审核提交失败' })
         return
       }
@@ -655,7 +657,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     try {
       patch({ isActionSubmitting: true, taskStatus: 'video_generating', statusMessage: '正在生成视频...' })
       const result = await generateVideo(taskId, frames, text, platform)
-      if (!result.success) {
+      if (result?.success === false) {
         patch({ taskStatus: 'frame_review', isActionSubmitting: false, statusMessage: result.message || '触发视频生成失败' })
         return
       }
@@ -673,7 +675,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     try {
       patch({ isActionSubmitting: true, taskStatus: 'video_generating', statusMessage: '正在重新生成视频...' })
       const result = await regenerateVideo(taskId, platform)
-      if (!result.success) {
+      if (result?.success === false) {
         patch({ taskStatus: 'video_review', isActionSubmitting: false, statusMessage: result.message || '重新生成视频失败' })
         return
       }
@@ -691,7 +693,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     try {
       patch({ isActionSubmitting: true, statusMessage: '正在确认完成...' })
       const result = await submitUserAction(taskId, 'confirm_video', '', '', platform)
-      if (!result.success) {
+      if (result?.success === false) {
         patch({ isActionSubmitting: false, statusMessage: result.message || '确认失败' })
         return
       }

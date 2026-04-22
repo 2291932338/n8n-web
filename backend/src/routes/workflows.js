@@ -1,8 +1,10 @@
 import express from 'express'
 import { randomUUID } from 'crypto'
 import { prisma } from '../db.js'
-import { config, getWebhookUrls } from '../config.js'
+import { config, getWebhookUrls, isVideoPlatform, normalizePlatform } from '../config.js'
 import { requireAuth } from '../middleware/auth.js'
+
+import { buildWorkflowStartResponse } from '../utils/workflowStartResponse.js'
 
 export const workflowsRouter = express.Router()
 
@@ -129,7 +131,7 @@ async function recordEvent({ userId, taskId, action, status, metadata }) {
 }
 
 workflowsRouter.post('/start', async (req, res, next) => {
-  const platform = req.body?.platform === 'douyin' ? 'douyin' : 'xiaohongshu'
+  const platform = normalizePlatform(req.body?.platform)
   const sessionId = String(req.body?.sessionId || randomUUID())
   const params = req.body?.params || {}
   const urls = getWebhookUrls(platform)
@@ -157,10 +159,15 @@ workflowsRouter.post('/start', async (req, res, next) => {
       },
     })
 
-    const result = await postJson(urls.START_WORKFLOW_URL, { platform, sessionId, params })
+    const result = await postJson(urls.START_WORKFLOW_URL, {
+      platform,
+      contentType: isVideoPlatform(platform) ? 'video' : 'article',
+      sessionId,
+      params,
+    })
     await recordEvent({ userId: req.user.id, taskId: sessionId, action: 'start', status: 'success', metadata: result })
 
-    res.json({ taskId: sessionId, ...result })
+    res.json(buildWorkflowStartResponse(sessionId, result))
   } catch (err) {
     await prisma.workflowTask.update({
       where: { taskId: sessionId },

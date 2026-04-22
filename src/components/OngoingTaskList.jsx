@@ -1,26 +1,17 @@
-/**
- * 进行中任务列表
- * 显示所有非终态任务，支持点击切换活跃任务
- */
-
-import TaskStatusDot from './TaskStatusDot'
+﻿import TaskStatusDot from './TaskStatusDot'
+import { getPlatformLabel } from '../platforms'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
 
-const PLATFORM_LABELS = {
-  xiaohongshu: '小红书',
-  douyin: '抖音',
-}
-
 const STATUS_TEXT = {
-  submitting:            '提交中',
-  processing:            '处理中',
+  submitting: '提交中',
+  processing: '处理中',
   waiting_user_feedback: '待确认',
-  revising:              '修改中',
-  image_review:          '图片待审核',
-  frame_review:          '逐帧审核',
-  video_generating:      '生成视频中',
-  video_review:          '视频待确认',
+  revising: '修改中',
+  image_review: '图片待审核',
+  frame_review: '逐帧审核',
+  video_generating: '生成视频中',
+  video_review: '视频待确认',
 }
 
 const NEEDS_ACTION = new Set(['waiting_user_feedback', 'image_review', 'frame_review', 'video_review'])
@@ -48,7 +39,7 @@ export default function OngoingTaskList({ tasks, activeTaskId, onSelectTask }) {
         </span>
       </div>
 
-      <div className="max-h-[220px] overflow-y-auto space-y-1.5 pr-0.5">
+      <div className="max-h-[220px] space-y-1.5 overflow-y-auto pr-0.5">
         {ongoingTasks.map((task) => {
           const isActive = task.taskId === activeTaskId
           const needsAction = NEEDS_ACTION.has(task.status)
@@ -66,37 +57,33 @@ export default function OngoingTaskList({ tasks, activeTaskId, onSelectTask }) {
                 isActive
                   ? 'border-blue-300 bg-blue-50 shadow-sm dark:border-blue-700 dark:bg-blue-900/20'
                   : needsAction
-                  ? 'border-purple-200 bg-purple-50 hover:border-purple-300 hover:bg-purple-50/80 dark:border-purple-800 dark:bg-purple-900/10 dark:hover:bg-purple-900/20'
-                  : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700'
+                    ? 'border-purple-200 bg-purple-50 hover:border-purple-300 hover:bg-purple-50/80 dark:border-purple-800 dark:bg-purple-900/10 dark:hover:bg-purple-900/20'
+                    : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700'
               }`}
             >
               <div className="flex items-start gap-2 p-2.5">
-                {/* 状态动画圆点 */}
                 <div className="mt-0.5 shrink-0">
                   <TaskStatusDot status={task.status} />
                 </div>
 
-                {/* 内容 */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                      {PLATFORM_LABELS[task.platform] || task.platform}
+                      {getPlatformLabel(task.platform)}
                     </span>
                     <span className={`text-[10px] font-medium ${
-                      needsAction
-                        ? 'text-purple-600 dark:text-purple-400'
-                        : 'text-yellow-600 dark:text-yellow-400'
+                      needsAction ? 'text-purple-600 dark:text-purple-400' : 'text-yellow-600 dark:text-yellow-400'
                     }`}>
                       {statusText}
                     </span>
                     {needsAction && (
-                      <span className="rounded-full bg-purple-500 px-1.5 py-0.5 text-[9px] font-bold text-white animate-blink">
+                      <span className="animate-blink rounded-full bg-purple-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
                         需操作
                       </span>
                     )}
                   </div>
                   {previewText ? (
-                    <p className="mt-0.5 text-[11px] text-gray-600 line-clamp-1 dark:text-gray-400">
+                    <p className="mt-0.5 line-clamp-1 text-[11px] text-gray-600 dark:text-gray-400">
                       {previewText}
                     </p>
                   ) : (
@@ -106,7 +93,6 @@ export default function OngoingTaskList({ tasks, activeTaskId, onSelectTask }) {
                   )}
                 </div>
 
-                {/* 时间 + 当前活跃标记 */}
                 <div className="shrink-0 text-right">
                   <p className="text-[10px] text-gray-400">{formatTime(task.createdAt)}</p>
                   {isActive && (

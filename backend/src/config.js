@@ -1,4 +1,4 @@
-import path from 'path'
+﻿import path from 'path'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -58,6 +58,20 @@ export const config = {
 
 export const SESSION_COOKIE_NAME = 'wfs_session'
 
+const ARTICLE_PLATFORMS = new Set(['xiaohongshu', 'zhihu', 'wechat'])
+const VIDEO_PLATFORMS = new Set(['douyin', 'kuaishou', 'bilibili'])
+
+export function normalizePlatform(platform) {
+  const value = String(platform || '').toLowerCase()
+  if (VIDEO_PLATFORMS.has(value)) return value
+  if (ARTICLE_PLATFORMS.has(value)) return value
+  return 'xiaohongshu'
+}
+
+export function isVideoPlatform(platform) {
+  return VIDEO_PLATFORMS.has(normalizePlatform(platform))
+}
+
 export function getWebhookUrls(platform) {
-  return platform === 'douyin' ? config.webhooks.douyin : config.webhooks.xiaohongshu
+  return isVideoPlatform(platform) ? config.webhooks.douyin : config.webhooks.xiaohongshu
 }

@@ -1,14 +1,10 @@
-/**
- * 左侧面板
- * 包含平台选择、表单填写、进行中任务列表、历史记录
- */
-
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import PlatformTabs from './PlatformTabs'
 import DynamicForm from './DynamicForm'
 import TaskHistory from './TaskHistory'
 import OngoingTaskList from './OngoingTaskList'
 import { getSchemaByPlatform } from '../formSchema'
+import { getPlatformGroup, getPlatformLabel } from '../platforms'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
 
@@ -25,9 +21,13 @@ export default function LeftPanel({
   onNewTask,
   onSelectTask,
 }) {
-  const [activeTab, setActiveTab] = useState('form') // 'form' | 'history'
+  const [activeTab, setActiveTab] = useState('form')
+  const [isPlatformSelectorOpen, setIsPlatformSelectorOpen] = useState(false)
   const schema = getSchemaByPlatform(platform)
   const isDisabled = isSubmitting
+  const platformGroup = getPlatformGroup(platform)
+  const platformGroupLabel = platformGroup === 'video' ? '视频工作流' : '图文工作流'
+  const platformLabel = getPlatformLabel(platform)
 
   const ongoingTasks = (taskRecords || []).filter((t) => !TERMINAL_STATUSES.has(t.status))
   const historyTasks = (taskRecords || []).filter((t) => TERMINAL_STATUSES.has(t.status))
@@ -44,7 +44,6 @@ export default function LeftPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {/* 顶部 Tab：新任务 / 历史记录 */}
       <div className="mb-3 flex rounded-xl border border-gray-100 p-1 dark:border-gray-700">
         <button
           onClick={handleNewTask}
@@ -77,7 +76,6 @@ export default function LeftPanel({
         </button>
       </div>
 
-      {/* 进行中任务（常驻区块，任何 tab 下都显示） */}
       {ongoingTasks.length > 0 && (
         <OngoingTaskList
           tasks={ongoingTasks}
@@ -88,22 +86,47 @@ export default function LeftPanel({
 
       {activeTab === 'form' ? (
         <>
-          {/* 平台选择 */}
-          <div className="mb-6">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              选择平台
-            </h2>
-            <PlatformTabs
-              value={platform}
-              onChange={onPlatformChange}
-              disabled={isDisabled}
-            />
+          <div className="mb-6 rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                  选择模块与平台
+                </h2>
+                <p className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {platformGroupLabel} / {platformLabel}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPlatformSelectorOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white"
+              >
+                {isPlatformSelectorOpen ? '收起' : '展开'}
+                <svg
+                  className={`h-4 w-4 transition-transform ${isPlatformSelectorOpen ? 'rotate-180' : ''}`}
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M5 7.5 10 12.5 15 7.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+
+            {isPlatformSelectorOpen && (
+              <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
+                <PlatformTabs
+                  value={platform}
+                  onChange={onPlatformChange}
+                  disabled={isDisabled}
+                />
+              </div>
+            )}
           </div>
 
-          {/* 分割线 */}
           <div className="mb-6 h-px bg-gray-100 dark:bg-gray-700" />
 
-          {/* 表单区域 */}
           <div className="flex-1 overflow-y-auto pr-1 -mr-1">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
               内容参数

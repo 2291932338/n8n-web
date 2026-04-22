@@ -1,25 +1,16 @@
-/**
- * 任务历史记录组件
- * 列表展示历史任务，支持展开查看详情（文案/图片/视频/版本历史）
- */
-
-import { useState } from 'react'
-
-const PLATFORM_LABELS = {
-  xiaohongshu: '小红书',
-  douyin: '抖音',
-}
+﻿import { useState } from 'react'
+import { ALL_PLATFORMS, getPlatformLabel } from '../platforms'
 
 const STATUS_LABELS = {
-  submitting:            { text: '提交中',    cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
-  processing:            { text: '处理中',    cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' },
-  waiting_user_feedback: { text: '待确认',    cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  revising:              { text: '修改中',    cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
-  frame_review:          { text: '逐帧审核',  cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  video_generating:      { text: '生成视频中', cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' },
-  video_review:          { text: '视频待确认', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  completed:             { text: '已完成',    cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
-  failed:                { text: '已失败',    cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+  submitting: { text: '提交中', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
+  processing: { text: '处理中', cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' },
+  waiting_user_feedback: { text: '待确认', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  revising: { text: '修改中', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
+  frame_review: { text: '逐帧审核', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  video_generating: { text: '生成视频中', cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' },
+  video_review: { text: '视频待确认', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  completed: { text: '已完成', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
+  failed: { text: '已失败', cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
 }
 
 function formatTime(ts) {
@@ -53,7 +44,6 @@ function TaskDetailPanel({ task }) {
 
   return (
     <div className="mt-3 space-y-3 border-t border-gray-100 pt-3 dark:border-gray-700">
-      {/* 表单参数 */}
       {task.formParams && Object.keys(task.formParams).length > 0 && (
         <div>
           <p className="mb-1 text-xs font-semibold text-gray-400 dark:text-gray-500">提交参数</p>
@@ -61,14 +51,13 @@ function TaskDetailPanel({ task }) {
             {Object.entries(task.formParams).map(([k, v]) => (
               <div key={k} className="flex gap-1 text-xs">
                 <span className="min-w-[5rem] text-gray-400 dark:text-gray-500">{k}:</span>
-                <span className="text-gray-700 dark:text-gray-300 break-all">{String(v)}</span>
+                <span className="break-all text-gray-700 dark:text-gray-300">{String(v)}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* 版本历史 */}
       {task.previewHistory && task.previewHistory.length > 0 && (
         <div>
           <p className="mb-1 text-xs font-semibold text-gray-400 dark:text-gray-500">
@@ -93,14 +82,13 @@ function TaskDetailPanel({ task }) {
                     修改意见：{v.feedback}
                   </p>
                 )}
-                <p className="text-xs text-gray-700 line-clamp-4 dark:text-gray-300">{v.text}</p>
+                <p className="line-clamp-4 text-xs text-gray-700 dark:text-gray-300">{v.text}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* 最终预览图片 */}
       {task.preview?.images && task.preview.images.length > 0 && (
         <div>
           <div className="mb-1 flex items-center justify-between">
@@ -121,13 +109,13 @@ function TaskDetailPanel({ task }) {
                     a.download = `image_${i + 1}.${ext}`
                     a.click()
                     URL.revokeObjectURL(blobUrl)
-                    if (i < images.length - 1) await new Promise(r => setTimeout(r, 500))
+                    if (i < images.length - 1) await new Promise((resolve) => setTimeout(resolve, 500))
                   } catch {
                     window.open(images[i], '_blank')
                   }
                 }
               }}
-              className="text-xs text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-medium"
+              className="text-xs font-medium text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
             >
               批量下载
             </button>
@@ -138,8 +126,10 @@ function TaskDetailPanel({ task }) {
                 <img
                   src={url}
                   alt={`图片${i + 1}`}
-                  className="h-16 w-16 rounded object-cover border border-gray-100 dark:border-gray-700"
-                  onError={(e) => { e.target.style.display = 'none' }}
+                  className="h-16 w-16 rounded border border-gray-100 object-cover dark:border-gray-700"
+                  onError={(e) => {
+                    e.target.style.display = 'none'
+                  }}
                 />
               </a>
             ))}
@@ -147,7 +137,6 @@ function TaskDetailPanel({ task }) {
         </div>
       )}
 
-      {/* 最终预览视频 */}
       {task.preview?.videos && task.preview.videos.length > 0 && (
         <div>
           <p className="mb-1 text-xs font-semibold text-gray-400 dark:text-gray-500">
@@ -169,26 +158,18 @@ function TaskDetailPanel({ task }) {
         </div>
       )}
 
-      {/* 错误信息 */}
       {task.errorMessage && (
         <div className="rounded-md bg-red-50 p-2 dark:bg-red-900/20">
           <p className="text-xs text-red-600 dark:text-red-400">错误：{task.errorMessage}</p>
         </div>
       )}
 
-      {/* 素材包下载 */}
       {task.downloadUrl && (
         <div>
           <button
             onClick={() => window.open(task.downloadUrl, '_blank')}
-            className="flex items-center justify-center gap-2 w-full rounded-lg bg-green-600 px-3 py-2
-              text-xs font-semibold text-white transition-colors hover:bg-green-700"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-green-700"
           >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
             下载素材包
           </button>
         </div>
@@ -202,6 +183,7 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
   const [filterPlatform, setFilterPlatform] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
 
+  const filterOptions = ['all', ...ALL_PLATFORMS]
   const filtered = filterPlatform === 'all'
     ? tasks
     : tasks.filter((t) => t.platform === filterPlatform)
@@ -225,21 +207,19 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-600">
         <svg className="mb-3 h-10 w-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
         <p className="text-sm">暂无历史记录</p>
-        <p className="mt-1 text-xs">已完成或失败的任务记录将保存在这里</p>
+        <p className="mt-1 text-xs">已完成或失败的任务会保存在这里</p>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 筛选 + 清空 */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
-          {['all', 'xiaohongshu', 'douyin'].map((p) => (
+        <div className="flex flex-wrap gap-1 rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
+          {filterOptions.map((p) => (
             <button
               key={p}
               onClick={() => setFilterPlatform(p)}
@@ -249,7 +229,7 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
                   : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
               }`}
             >
-              {p === 'all' ? '全部' : PLATFORM_LABELS[p]}
+              {p === 'all' ? '全部' : getPlatformLabel(p)}
             </button>
           ))}
         </div>
@@ -265,7 +245,6 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
         </button>
       </div>
 
-      {/* 任务列表 */}
       <div className="space-y-2">
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-sm text-gray-400">该平台暂无记录</p>
@@ -278,43 +257,33 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
               : task.preview?.text || ''
 
             return (
-              <div
-                key={task.taskId}
-                className="rounded-lg border border-gray-100 bg-white dark:border-gray-700 dark:bg-gray-800"
-              >
-                {/* 头部行 */}
-                <div
-                  className="flex cursor-pointer items-start gap-2 p-3"
-                  onClick={() => handleToggle(task.taskId)}
-                >
-                  {/* 平台标签 */}
+              <div key={task.taskId} className="rounded-lg border border-gray-100 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex cursor-pointer items-start gap-2 p-3" onClick={() => handleToggle(task.taskId)}>
                   <span className="mt-0.5 shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                    {PLATFORM_LABELS[task.platform] || task.platform}
+                    {getPlatformLabel(task.platform)}
                   </span>
 
-                  {/* 文案预览 + 时间 */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs text-gray-700 line-clamp-2 dark:text-gray-300">
+                    <p className="line-clamp-2 text-xs text-gray-700 dark:text-gray-300">
                       {latestText || task.statusMessage || task.errorMessage || '（无内容）'}
                     </p>
                     <p className="mt-1 text-[10px] text-gray-400">{formatTime(task.createdAt)}</p>
                   </div>
 
-                  {/* 状态徽章 */}
                   <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${statusInfo.cls}`}>
                     {statusInfo.text}
                   </span>
 
-                  {/* 展开箭头 */}
                   <svg
                     className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
 
-                {/* 展开详情 */}
                 {isExpanded && (
                   <div className="border-t border-gray-50 px-3 pb-3 dark:border-gray-700">
                     <TaskDetailPanel task={task} />
@@ -325,7 +294,7 @@ export default function TaskHistory({ tasks, onDelete, onClearAll }) {
                           onDelete(task.taskId)
                           if (expandedId === task.taskId) setExpandedId(null)
                         }}
-                        className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                        className="text-xs text-gray-400 transition-colors hover:text-red-500"
                       >
                         删除此记录
                       </button>

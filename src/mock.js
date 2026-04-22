@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Mock 服务
  * 在没有真实 n8n 接口时，模拟完整工作流流程
  * 支持：小红书全流程 + 重新生成图片
@@ -6,6 +6,7 @@
  */
 
 import config from './config'
+import { getPlatformLabel, isVideoPlatform } from './platforms'
 
 // 内存中存储 mock 任务状态
 const mockTasks = {}
@@ -181,7 +182,7 @@ export async function mockStartWorkflow(platform, sessionId, params) {
 
   const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-  const content = platform === 'xiaohongshu'
+  const content = !isVideoPlatform(platform)
     ? generateXiaohongshuMockContent(params)
     : generateDouyinMockContent(params)
 
@@ -203,7 +204,7 @@ export async function mockStartWorkflow(platform, sessionId, params) {
       {
         role: 'system',
         type: 'status',
-        content: `✅ 工作流已启动\n平台：${platform === 'xiaohongshu' ? '小红书' : '抖音'}\n任务 ID：${taskId}`,
+        content: `✅ 工作流已启动\n平台：${getPlatformLabel(platform)}\n任务 ID：${taskId}`,
         timestamp: Date.now(),
       },
     ],
@@ -240,7 +241,7 @@ export async function mockQueryStatus(taskId) {
       task.phase = 1
       task.pollCount = 0
 
-      const previewContent = task.platform === 'xiaohongshu'
+      const previewContent = !isVideoPlatform(task.platform)
         ? {
             text: task.content.draftText,
             images: task.content.images,
@@ -295,7 +296,7 @@ export async function mockQueryStatus(taskId) {
 
   // Phase 1: 等待用户反馈（不变，由 userAction 触发 phase 变更）
   if (task.phase === 1) {
-    const previewContent = task.platform === 'xiaohongshu'
+    const previewContent = !isVideoPlatform(task.platform)
       ? {
           text: task.content.draftText,
           images: task.content.images,
@@ -326,7 +327,7 @@ export async function mockQueryStatus(taskId) {
       task.phase = 3
       task.pollCount = 0
 
-      const finalPreview = task.platform === 'xiaohongshu'
+      const finalPreview = !isVideoPlatform(task.platform)
         ? {
             text: task.content.finalText,
             images: task.content.images,
@@ -383,7 +384,7 @@ export async function mockQueryStatus(taskId) {
 
   // Phase 3: 已完成（小红书）
   if (task.phase === 3) {
-    const finalPreview = task.platform === 'xiaohongshu'
+    const finalPreview = !isVideoPlatform(task.platform)
       ? { text: task.content.finalText, images: task.content.images, videos: [] }
       : { text: task.content.finalText, images: task.content.images || [], videos: task.content.video ? [task.content.video] : [] }
 
@@ -512,7 +513,7 @@ export async function mockUserAction(taskId, action, feedback) {
     task.pollCount = 0
   } else if (action === 'confirm') {
     task.history.push({ role: 'user', type: 'text', content: '✅ 已确认，继续生成', timestamp: Date.now() })
-    if (task.platform === 'douyin') {
+    if (isVideoPlatform(task.platform)) {
       // 抖音：确认稿件后进入逐帧生成阶段
       task.history.push({ role: 'system', type: 'status', content: '⏳ 确认成功，开始逐帧生成分镜图片...', timestamp: Date.now() })
       task.phase = 5
@@ -614,3 +615,6 @@ export async function mockRegenerateVideo(taskId) {
   task.videoSeed = Date.now()
   return { success: true, status: 'processing', message: '正在重新生成视频...' }
 }
+
+
+

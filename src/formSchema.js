@@ -1,18 +1,10 @@
-﻿/**
+﻿import { isVideoPlatform } from './platforms'
+
+/**
  * 表单字段 Schema 配置
- * 使用配置驱动方式管理表单，方便后续修改字段。
- * 每个字段包含：
- * - name: 字段标识，也是提交到 n8n 的 key
- * - label: 显示名称
- * - type: 字段类型 (text | textarea | select | number | file)
- * - placeholder: 占位提示
- * - required: 是否必填
- * - options: select 类型字段的选项
- * - defaultValue: 默认值
- * - min/max: number 类型的范围
  */
 
-export const xiaohongshuSchema = [
+export const articleSchema = [
   {
     name: '主题/产品',
     label: '主题/产品',
@@ -103,7 +95,7 @@ export const xiaohongshuSchema = [
   },
 ]
 
-export const douyinSchema = [
+export const videoSchema = [
   {
     name: '工作流模式',
     label: '工作流模式',
@@ -242,9 +234,13 @@ export const douyinSchema = [
   },
 ]
 
-/**
- * 获取指定平台的 schema
- */
+export const xiaohongshuSchema = articleSchema
+export const zhihuSchema = articleSchema
+export const wechatSchema = articleSchema
+export const douyinSchema = videoSchema
+export const kuaishouSchema = videoSchema
+export const bilibiliSchema = videoSchema
+
 export function getSchemaByPlatform(platform) {
-  return platform === 'xiaohongshu' ? xiaohongshuSchema : douyinSchema
+  return isVideoPlatform(platform) ? videoSchema : articleSchema
 }

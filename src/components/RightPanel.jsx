@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 右侧面板
  * 根据 platform + taskStatus/stepName 路由显示对应内容
  * 小红书：文案预览 + 图片 + 重新生成图片
@@ -20,6 +20,7 @@ import DouyinStoryboardReview from './DouyinStoryboardReview'
 import DouyinMediaProgress from './DouyinMediaProgress'
 import DouyinProductionResult from './DouyinProductionResult'
 import XhsImageReview from './XhsImageReview'
+import { isVideoPlatform } from '../platforms'
 
 function VersionHistory({ previewHistory }) {
   const [expandedVersion, setExpandedVersion] = useState(null)
@@ -164,8 +165,8 @@ export default function RightPanel({
   onRegenVideo,
   onConfirmVideo,
 }) {
-  const isDouyin = platform === 'douyin'
-  const isBatchMode = isDouyin && workflowMode === 'batch'
+  const isVideo = isVideoPlatform(platform)
+  const isBatchMode = isVideo && workflowMode === 'batch'
   const isIdle = taskStatus === 'idle'
   const isFailed = taskStatus === 'failed'
   const isCompleted = taskStatus === 'completed'
@@ -239,7 +240,7 @@ export default function RightPanel({
         )}
 
         {/* ── 小红书：逐张图片审核 ── */}
-        {!isDouyin && isImageReview && (
+        {!isVideo && isImageReview && (
           <XhsImageReview
             xhsImages={xhsImages || []}
             currentIndex={currentXhsImageIndex}
@@ -250,7 +251,7 @@ export default function RightPanel({
         )}
 
         {/* ── 抖音逐帧审核模式：分镜图片逐帧审核 ── */}
-        {isDouyin && !isBatchMode && isFrameReview && (
+        {isVideo && !isBatchMode && isFrameReview && (
           <DouyinFrameReview
             frames={frames || []}
             currentFrameIndex={currentFrameIndex}
@@ -263,12 +264,12 @@ export default function RightPanel({
         )}
 
         {/* ── 抖音逐帧审核模式：视频生成中 ── */}
-        {isDouyin && !isBatchMode && taskStatus === 'video_generating' && (
+        {isVideo && !isBatchMode && taskStatus === 'video_generating' && (
           <LoadingSpinner message={statusMessage || '正在合成视频，请稍候...'} />
         )}
 
         {/* ── 抖音逐帧审核模式：视频审核 ── */}
-        {isDouyin && !isBatchMode && isVideoReview && (
+        {isVideo && !isBatchMode && isVideoReview && (
           <div className="space-y-4">
             <DouyinVideoReview
               videoUrl={videoUrl}
@@ -290,7 +291,7 @@ export default function RightPanel({
         {/* 批量模式的 completed 由 DouyinProductionResult 处理 */}
         {(isWaiting || isCompleted || (isProcessing && preview)) &&
           !isImageReview && !isFrameReview && !isVideoReview &&
-          !(isDouyin && (isFrameReview || isVideoReview || taskStatus === 'video_generating')) &&
+          !(isVideo && (isFrameReview || isVideoReview || taskStatus === 'video_generating')) &&
           !(isBatchMode && isWaiting && (storyboardDocument || preview?.text)) &&
           !(isBatchMode && isCompleted && (downloadUrl || (fileList && fileList.length > 0))) &&
           preview && preview.text && (
@@ -319,7 +320,7 @@ export default function RightPanel({
             </div>
 
             {/* 小红书：图片 + 重新生成按钮 */}
-            {!isDouyin && preview.images && preview.images.length > 0 && (
+            {!isVideo && preview.images && preview.images.length > 0 && (
               <div>
                 <PreviewContent preview={{ text: null, images: preview.images, videos: [] }} isCompleted={isCompleted} />
                 {isCompleted && (
@@ -368,3 +369,5 @@ export default function RightPanel({
     </div>
   )
 }
+
+
