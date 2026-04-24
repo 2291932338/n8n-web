@@ -5,7 +5,7 @@
  * 抖音：稿件预览 → 分镜审核 → 视频生成 → 视频审核
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import StatusIndicator from './StatusIndicator'
 import EmptyState from './EmptyState'
 import ErrorState from './ErrorState'
@@ -129,6 +129,12 @@ function CopyButton({ text }) {
   )
 }
 
+function resizeTextareaToContent(element) {
+  if (!element) return
+  element.style.height = 'auto'
+  element.style.height = `${element.scrollHeight}px`
+}
+
 export default function RightPanel({
   platform,
   taskStatus,
@@ -154,6 +160,7 @@ export default function RightPanel({
   generationProgress,
   onRevise,
   onConfirm,
+  onPreviewTextChange,
   onRetry,
   onStopTask,
   onApproveXhsImage,
@@ -176,6 +183,50 @@ export default function RightPanel({
   const isFrameReview = taskStatus === 'frame_review'
   const isVideoReview = taskStatus === 'video_review'
   const canStop = !isIdle && !isFailed && !isCompleted
+  const storyboardFallbackText = isBatchMode && storyboardDocument
+    ? (typeof storyboardDocument === 'string' ? storyboardDocument : JSON.stringify(storyboardDocument, null, 2))
+    : ''
+  const draftSourceText = typeof preview?.text === 'string' ? preview.text : storyboardFallbackText
+  const [draftText, setDraftText] = useState(draftSourceText)
+  const [isDraftDirty, setIsDraftDirty] = useState(false)
+  const draftTextareaRef = useRef(null)
+  const draftTextRef = useRef(draftSourceText)
+
+  useEffect(() => {
+    draftTextRef.current = draftSourceText
+    setDraftText(draftSourceText)
+    setIsDraftDirty(false)
+  }, [draftSourceText])
+
+  useEffect(() => {
+    resizeTextareaToContent(draftTextareaRef.current)
+  }, [draftText, isWaiting])
+
+  const handleDraftTextChange = (value) => {
+    draftTextRef.current = value
+    setDraftText(value)
+    setIsDraftDirty(value !== draftSourceText)
+    onPreviewTextChange?.(value)
+  }
+
+  const commitDraftText = () => {
+    const currentText = draftTextareaRef.current?.value ?? draftTextRef.current ?? draftText
+    draftTextRef.current = currentText
+
+    if (currentText !== draftSourceText) {
+      onPreviewTextChange?.(currentText)
+      setIsDraftDirty(false)
+    }
+    return currentText
+  }
+
+  const handleReviseDraft = (feedback) => {
+    onRevise?.(feedback, commitDraftText())
+  }
+
+  const handleConfirmDraft = () => {
+    onConfirm?.(commitDraftText())
+  }
 
   // 所有帧都通过时（allFramesApproved flag 来自轮询结果，存在 frames 内部判断或通过状态判断）
   const allFramesApproved = isFrameReview && frames && frames.length > 0 && frames.every(f => f.status === 'approved')
@@ -213,10 +264,15 @@ export default function RightPanel({
         {isFailed && <ErrorState message={errorMessage} onRetry={onRetry} />}
 
         {/* ── 抖音批量模式：分镜文档审核 ── */}
-        {isBatchMode && isWaiting && (storyboardDocument || preview?.text) && (
+        {isBatchMode && (isWaiting || isProcessing) && (storyboardDocument || draftSourceText) && (
           <DouyinStoryboardReview
             storyboardDocument={storyboardDocument}
-            previewText={preview?.text}
+            previewText={draftSourceText}
+            editableText={draftText}
+            isDirty={isDraftDirty}
+            allowEdit={isWaiting}
+            onEditableTextChange={handleDraftTextChange}
+            onEditableTextBlur={commitDraftText}
             isActionSubmitting={isActionSubmitting}
           />
         )}
@@ -292,7 +348,7 @@ export default function RightPanel({
         {(isWaiting || isCompleted || (isProcessing && preview)) &&
           !isImageReview && !isFrameReview && !isVideoReview &&
           !(isVideo && (isFrameReview || isVideoReview || taskStatus === 'video_generating')) &&
-          !(isBatchMode && isWaiting && (storyboardDocument || preview?.text)) &&
+          !(isBatchMode && (isWaiting || isProcessing) && (storyboardDocument || draftSourceText)) &&
           !(isBatchMode && isCompleted && (downloadUrl || (fileList && fileList.length > 0))) &&
           preview && preview.text && (
           <div className="space-y-6">
@@ -312,11 +368,30 @@ export default function RightPanel({
                       : '文案预览（初稿）'
                   )}
                 </h3>
-                <CopyButton text={preview.text} />
+                <CopyButton text={draftText} />
               </div>
-              <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
-                {preview.text}
-              </div>
+              {isWaiting ? (
+                <div className="space-y-2">
+                  <textarea
+                    ref={draftTextareaRef}
+                    value={draftText}
+                    onChange={(e) => handleDraftTextChange(e.target.value)}
+                    onBlur={commitDraftText}
+                    disabled={isActionSubmitting}
+                    aria-label="编辑当前初稿"
+                    className="min-h-[320px] w-full resize-none overflow-hidden rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm leading-relaxed text-gray-700 outline-none transition
+                      focus:border-blue-300 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60
+                      dark:border-blue-800 dark:bg-gray-900/70 dark:text-gray-200 dark:focus:border-blue-500"
+                  />
+                  <p className={`text-xs ${isDraftDirty ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                    {isDraftDirty ? '已手动修改，确认继续或提交修改时会使用当前内容。' : '可直接在预览框中修改，也可以在下方输入意见让 AI 修改。'}
+                  </p>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                  {preview.text}
+                </div>
+              )}
             </div>
 
             {/* 小红书：图片 + 重新生成按钮 */}
@@ -358,8 +433,8 @@ export default function RightPanel({
       {isWaiting && !isImageReview && !isFrameReview && !isVideoReview && !isFailed && (
         <div className="mt-4 flex-shrink-0">
           <UserActionBar
-            onRevise={onRevise}
-            onConfirm={onConfirm}
+            onRevise={handleReviseDraft}
+            onConfirm={handleConfirmDraft}
             allowRevise={allowRevise}
             allowConfirm={allowConfirm}
             isSubmitting={isActionSubmitting}

@@ -72,6 +72,7 @@ function TaskInstance({
           generationProgress={task.generationProgress}
           onRevise={task.revise}
           onConfirm={task.confirm}
+          onPreviewTextChange={task.updatePreviewText}
           onRetry={task.reset}
           onStopTask={task.stopTask}
           onApproveXhsImage={task.approveXhsImage}
@@ -110,6 +111,7 @@ function TaskInstance({
           generationProgress={task.generationProgress}
           onRevise={task.revise}
           onConfirm={task.confirm}
+          onPreviewTextChange={task.updatePreviewText}
           onRetry={task.reset}
           onStopTask={task.stopTask}
           onApproveXhsImage={task.approveXhsImage}

@@ -131,8 +131,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   const stateRef = useRef(state)
   useEffect(() => { stateRef.current = state }, [state])
 
-  // 首次修改标记
-  const isFirstReviseRef = useRef(true)
+  const manualPreviewTextRef = useRef(null)
 
   // 将 state 补丁合并并持久化
   const patch = useCallback((updates, persist = true) => {
@@ -330,7 +329,15 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     if (result.status === 'waiting_user_feedback') {
-      const newPreview = result.preview || cur.preview
+      let newPreview = result.preview || cur.preview
+      if (manualPreviewTextRef.current !== null && cur.taskStatus === 'waiting_user_feedback') {
+        newPreview = {
+          ...(newPreview || {}),
+          text: manualPreviewTextRef.current,
+          images: newPreview?.images || [],
+          videos: newPreview?.videos || [],
+        }
+      }
       const updates = {
         ...common,
         taskStatus: 'waiting_user_feedback',
@@ -365,6 +372,18 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   }, [patch])
 
   const { start: startPolling, stop: stopPolling } = usePoller(handleStatusUpdate, handlePollError)
+
+  const updatePreviewText = useCallback((text) => {
+    const { preview } = stateRef.current
+    manualPreviewTextRef.current = text
+    const nextPreview = {
+      ...(preview || {}),
+      text,
+      images: preview?.images || [],
+      videos: preview?.videos || [],
+    }
+    patch({ preview: nextPreview })
+  }, [patch])
 
   // 延迟轮询定时器（用户操作后给 n8n 留出处理时间，避免立即拿到旧状态）
   const delayTimerRef = useRef(null)
@@ -416,7 +435,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     const sessionId = uuidv4()
     const { referenceFiles, serializableFormData } = splitReferenceImages(formData)
     const workflowMode = (isVideoPlatform(platform) && serializableFormData['\u5de5\u4f5c\u6d41\u6a21\u5f0f'] === '\u9010\u5e27\u5ba1\u6838\u6a21\u5f0f') ? 'interactive' : 'batch'
-    isFirstReviseRef.current = true
+    manualPreviewTextRef.current = null
 
     const prev = stateRef.current
     if (prev.taskId && !TERMINAL_STATUSES.has(prev.taskStatus) && prev.taskStatus !== 'idle' && prev.taskStatus !== 'submitting') {
@@ -481,15 +500,27 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   }, [patch, startForegroundPolling, stopPolling])
 
   // ── 提交修改意见 ───────────────────────────────────────────
-  const revise = useCallback((feedback) => {
+  const revise = useCallback((feedback, draftText) => {
     const { taskId, preview, platform } = stateRef.current
     if (!taskId) return
-    const sendPreviousText = isFirstReviseRef.current ? (preview?.text || '') : ''
-    isFirstReviseRef.current = false
+    const currentText = typeof draftText === 'string' ? draftText : (preview?.text || '')
+    const nextPreview = {
+      ...(preview || {}),
+      text: currentText,
+      images: preview?.images || [],
+      videos: preview?.videos || [],
+    }
+    const sendPreviousText = currentText
+    manualPreviewTextRef.current = null
 
     // 先设置锁，再 patch（patch 内 saveTask 会持久化锁状态）
     actionLockRef.current = { prevStatus: 'waiting_user_feedback', lockedAt: Date.now(), lockDurationMs: 60000 }
-    patch({ isActionSubmitting: false, taskStatus: 'processing', statusMessage: '修改意见已接收，重新生成中...' })
+    patch({
+      isActionSubmitting: false,
+      taskStatus: 'processing',
+      statusMessage: '修改意见已接收，重新生成中...',
+      preview: nextPreview,
+    })
     startPollingAfterDelay(taskId, platform, 5000)
 
     submitUserAction(taskId, 'revise', feedback, sendPreviousText, platform).catch(() => {
@@ -499,15 +530,23 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   }, [patch, startPollingAfterDelay, stopPolling])
 
   // ── 确认稿件 ───────────────────────────────────────────────
-  const confirm = useCallback(() => {
+  const confirm = useCallback((draftText) => {
     const { taskId, preview, platform, previewHistory, workflowMode } = stateRef.current
     if (!taskId) return
 
-    const updated = preview?.text ? [
+    const currentText = typeof draftText === 'string' ? draftText : (preview?.text || '')
+    const nextPreview = {
+      ...(preview || {}),
+      text: currentText,
+      images: preview?.images || [],
+      videos: preview?.videos || [],
+    }
+    const updated = currentText ? [
       ...previewHistory,
-      { version: previewHistory.length + 1, label: '确认版本', text: preview.text, timestamp: Date.now() }
+      { version: previewHistory.length + 1, label: '确认版本', text: currentText, timestamp: Date.now() }
     ] : previewHistory
-    const confirmedText = preview?.text || ''
+    const confirmedText = currentText
+    manualPreviewTextRef.current = null
 
     // 先设置锁，再 patch（patch 内 saveTask 会持久化锁状态）
     // confirm + generate 两个请求串行，总时长可能较长，锁定10分钟
@@ -518,6 +557,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       isActionSubmitting: false,
       taskStatus: 'processing',
       statusMessage: isBatchMode ? '分镜确认成功，正在生成素材...' : '确认成功，正在生成配图...',
+      preview: nextPreview,
       previewHistory: updated,
       confirmedText,
     })
@@ -736,6 +776,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   }, [patch, stopPolling])
   const reset = useCallback(() => {
     stopPolling()
+    manualPreviewTextRef.current = null
     setState(INITIAL_STATE)
   }, [stopPolling])
 
@@ -744,6 +785,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     submit,
     revise,
     confirm,
+    updatePreviewText,
     approveXhsImage,
     rejectXhsImage,
     regenImages,
