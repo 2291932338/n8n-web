@@ -17,6 +17,94 @@ const SCENE_FIELDS = [
   { key: 'notes', label: '备注', type: 'textarea' },
 ]
 
+const MATERIAL_OPTIONS = [
+  { value: 'image', label: '图片', hint: '生成静态配图' },
+  { value: 'video', label: '视频', hint: '生成视频素材' },
+  { value: 'none', label: '不添加', hint: '不生成额外素材' },
+]
+
+function getMaterialOption(value) {
+  return MATERIAL_OPTIONS.find((option) => option.value === value) || MATERIAL_OPTIONS[0]
+}
+
+function normalizeMaterialType(scene) {
+  if (scene?.materialType && MATERIAL_OPTIONS.some((option) => option.value === scene.materialType)) {
+    return scene.materialType
+  }
+  if (scene?.assetType && MATERIAL_OPTIONS.some((option) => option.value === scene.assetType)) {
+    return scene.assetType
+  }
+  return 'image'
+}
+
+function withMaterialSelection(scene, materialType = normalizeMaterialType(scene)) {
+  const option = getMaterialOption(materialType)
+  return {
+    ...scene,
+    materialType: option.value,
+    materialTypeLabel: option.label,
+    generateImage: option.value === 'image',
+    generateVideo: option.value === 'video',
+    skipMaterial: option.value === 'none',
+  }
+}
+
+function normalizeScenes(scenes) {
+  return (scenes || []).map((scene) => withMaterialSelection(scene))
+}
+
+function sceneHasMaterialSelection(scene) {
+  const materialType = normalizeMaterialType(scene)
+  return Boolean(
+    scene?.materialType &&
+    materialType === scene.materialType &&
+    scene.generateImage === (materialType === 'image') &&
+    scene.generateVideo === (materialType === 'video') &&
+    scene.skipMaterial === (materialType === 'none')
+  )
+}
+
+function scenesNeedMaterialSelection(scenes) {
+  return (scenes || []).some((scene) => !sceneHasMaterialSelection(scene))
+}
+
+function MaterialSelector({ value, disabled, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="mr-1 text-xs font-medium text-gray-400 dark:text-gray-500">素材</span>
+      <div className="flex flex-wrap gap-1.5">
+        {MATERIAL_OPTIONS.map((option) => {
+          const selected = value === option.value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              disabled={disabled}
+              aria-pressed={selected}
+              title={option.hint}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                selected
+                  ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-violet-200 hover:text-violet-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:text-violet-300'
+              }`}
+            >
+              <span className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded border text-[9px] ${
+                selected
+                  ? 'border-violet-500 bg-violet-500 text-white'
+                  : 'border-gray-300 text-transparent dark:border-gray-600'
+              }`}>
+                ✓
+              </span>
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function FieldEditor({ field, value, onChange, disabled }) {
   const baseClass = `w-full rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm text-gray-700 outline-none transition
     focus:border-violet-300 focus:ring-2 focus:ring-violet-500/20 disabled:cursor-not-allowed disabled:opacity-60
@@ -44,9 +132,10 @@ function FieldEditor({ field, value, onChange, disabled }) {
   )
 }
 
-function SceneCard({ scene, index, onSceneChange, isActionSubmitting, allowEdit }) {
+function SceneCard({ scene, index, onSceneChange, onSceneMaterialChange, isActionSubmitting, allowEdit }) {
   const [expanded, setExpanded] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
+  const materialType = normalizeMaterialType(scene)
   const displayFields = SCENE_FIELDS.filter((field) => (
     !['title', 'duration'].includes(field.key) && scene[field.key]
   ))
@@ -111,6 +200,14 @@ function SceneCard({ scene, index, onSceneChange, isActionSubmitting, allowEdit 
 
       {expanded && (
         <div className="border-t border-violet-50 px-4 py-3 dark:border-violet-800/50">
+          <div className="mb-4">
+            <MaterialSelector
+              value={materialType}
+              disabled={!allowEdit || isActionSubmitting}
+              onChange={(value) => onSceneMaterialChange(index, value)}
+            />
+          </div>
+
           {allowEdit && isEditing ? (
             <div className="space-y-3">
               {SCENE_FIELDS.map((field) => (
@@ -160,14 +257,15 @@ function parseStoryboard(doc) {
 
   // 如果是对象或数组，直接返回
   if (typeof doc === 'object') {
-    return { scenes: Array.isArray(doc) ? doc : (doc.scenes || [doc]), raw: null }
+    const scenes = Array.isArray(doc) ? doc : (doc.scenes || [doc])
+    return { scenes: normalizeScenes(scenes), raw: null, needsMaterialSelection: scenesNeedMaterialSelection(scenes) }
   }
 
   // 尝试解析 JSON
   try {
     const parsed = JSON.parse(doc)
     const scenes = Array.isArray(parsed) ? parsed : (parsed.scenes || [parsed])
-    return { scenes, raw: null }
+    return { scenes: normalizeScenes(scenes), raw: null, needsMaterialSelection: scenesNeedMaterialSelection(scenes) }
   } catch {
     // 非 JSON，作为纯文本返回
     return { scenes: [], raw: doc }
@@ -181,15 +279,17 @@ function resizeTextareaToContent(element) {
 }
 
 function serializeStoryboard(originalDocument, scenes) {
+  const normalizedScenes = normalizeScenes(scenes)
+
   if (Array.isArray(originalDocument)) {
-    return JSON.stringify(scenes, null, 2)
+    return JSON.stringify(normalizedScenes, null, 2)
   }
 
   if (originalDocument && typeof originalDocument === 'object') {
-    return JSON.stringify({ ...originalDocument, scenes }, null, 2)
+    return JSON.stringify({ ...originalDocument, scenes: normalizedScenes }, null, 2)
   }
 
-  return JSON.stringify({ scenes }, null, 2)
+  return JSON.stringify({ scenes: normalizedScenes }, null, 2)
 }
 
 export default function DouyinStoryboardReview({
@@ -211,21 +311,44 @@ export default function DouyinStoryboardReview({
   const hasScenes = parsed && parsed.scenes.length > 0
   const rawText = parsed?.raw || previewText || (typeof storyboardDocument === 'string' ? storyboardDocument : '')
   const hasEditableText = typeof editableText === 'string'
-  const [editableScenes, setEditableScenes] = useState(parsed?.scenes || [])
+  const [editableScenes, setEditableScenes] = useState(normalizeScenes(parsed?.scenes || []))
 
   useEffect(() => {
     resizeTextareaToContent(editableTextareaRef.current)
   }, [editableText])
 
   useEffect(() => {
-    setEditableScenes(parsed?.scenes || [])
+    setEditableScenes(normalizeScenes(parsed?.scenes || []))
   }, [editableText, storyboardDocument, previewText])
+
+  useEffect(() => {
+    if (!allowEdit || !hasScenes || !parsed?.needsMaterialSelection) return
+    onEditableTextChange?.(serializeStoryboard(storyboardDocument, parsed.scenes))
+  }, [allowEdit, hasScenes, editableText, storyboardDocument, onEditableTextChange])
 
   const handleSceneChange = (sceneIndex, fieldKey, value) => {
     setEditableScenes((currentScenes) => {
       const nextScenes = currentScenes.map((scene, index) => (
         index === sceneIndex ? { ...scene, [fieldKey]: value } : scene
       ))
+      onEditableTextChange?.(serializeStoryboard(storyboardDocument, nextScenes))
+      return nextScenes
+    })
+  }
+
+  const handleSceneMaterialChange = (sceneIndex, materialType) => {
+    setEditableScenes((currentScenes) => {
+      const nextScenes = currentScenes.map((scene, index) => (
+        index === sceneIndex ? withMaterialSelection(scene, materialType) : scene
+      ))
+      onEditableTextChange?.(serializeStoryboard(storyboardDocument, nextScenes))
+      return nextScenes
+    })
+  }
+
+  const handleAllMaterialChange = (materialType) => {
+    setEditableScenes((currentScenes) => {
+      const nextScenes = currentScenes.map((scene) => withMaterialSelection(scene, materialType))
       onEditableTextChange?.(serializeStoryboard(storyboardDocument, nextScenes))
       return nextScenes
     })
@@ -319,6 +442,27 @@ export default function DouyinStoryboardReview({
       {/* 结构化场景卡片 */}
       {hasScenes && (
         <div className="space-y-3">
+          {allowEdit && (
+            <div className="rounded-xl border border-violet-100 bg-white px-3 py-2 dark:border-violet-800 dark:bg-gray-800">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-gray-400 dark:text-gray-500">
+                  全部设为
+                </span>
+                {MATERIAL_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleAllMaterialChange(option.value)}
+                    disabled={isActionSubmitting}
+                    className="inline-flex h-8 items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-500 transition hover:border-violet-200 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:text-violet-300"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {editableScenes.map((scene, i) => (
             <SceneCard
               key={i}
@@ -327,6 +471,7 @@ export default function DouyinStoryboardReview({
               allowEdit={allowEdit}
               isActionSubmitting={isActionSubmitting}
               onSceneChange={handleSceneChange}
+              onSceneMaterialChange={handleSceneMaterialChange}
             />
           ))}
         </div>

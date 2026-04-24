@@ -189,6 +189,7 @@ export default function RightPanel({
   const draftSourceText = typeof preview?.text === 'string' ? preview.text : storyboardFallbackText
   const [draftText, setDraftText] = useState(draftSourceText)
   const [isDraftDirty, setIsDraftDirty] = useState(false)
+  const [isDraftEditing, setIsDraftEditing] = useState(false)
   const draftTextareaRef = useRef(null)
   const draftTextRef = useRef(draftSourceText)
   const draftSourceTextRef = useRef(draftSourceText)
@@ -202,11 +203,12 @@ export default function RightPanel({
     draftTextRef.current = draftSourceText
     setDraftText(draftSourceText)
     setIsDraftDirty(false)
+    setIsDraftEditing(false)
   }, [draftSourceText])
 
   useEffect(() => {
     resizeTextareaToContent(draftTextareaRef.current)
-  }, [draftText, isWaiting])
+  }, [draftText, isWaiting, isDraftEditing])
 
   const handleDraftTextChange = (value) => {
     localDraftEditRef.current = true
@@ -224,6 +226,15 @@ export default function RightPanel({
       onPreviewTextChange?.(currentText)
     }
     return currentText
+  }
+
+  const toggleDraftEditing = () => {
+    if (isDraftEditing) {
+      commitDraftText()
+      setIsDraftEditing(false)
+      return
+    }
+    setIsDraftEditing(true)
   }
 
   const handleReviseDraft = (feedback) => {
@@ -374,9 +385,25 @@ export default function RightPanel({
                       : '文案预览（初稿）'
                   )}
                 </h3>
-                <CopyButton text={draftText} />
+                <div className="flex items-center gap-2">
+                  {isWaiting && (
+                    <button
+                      type="button"
+                      onClick={toggleDraftEditing}
+                      disabled={isActionSubmitting}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isDraftEditing
+                          ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                          : 'border-gray-200 bg-white text-gray-500 hover:border-blue-200 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:text-blue-300'
+                      }`}
+                    >
+                      {isDraftEditing ? '完成' : '编辑'}
+                    </button>
+                  )}
+                  <CopyButton text={draftText} />
+                </div>
               </div>
-              {isWaiting ? (
+              {isWaiting && isDraftEditing ? (
                 <div className="space-y-2">
                   <textarea
                     ref={draftTextareaRef}
@@ -394,8 +421,15 @@ export default function RightPanel({
                   </p>
                 </div>
               ) : (
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
-                  {preview.text}
+                <div className="space-y-2">
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                    {draftText}
+                  </div>
+                  {isWaiting && (
+                    <p className={`text-xs ${isDraftDirty ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                      {isDraftDirty ? '已手动修改，确认继续或提交修改时会使用当前内容。' : '需要手动改稿时，点击右上角“编辑”。'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
