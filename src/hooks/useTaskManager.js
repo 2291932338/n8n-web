@@ -5,6 +5,26 @@ import { setUpdateListener } from '../backgroundPoller'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
 
+function protectLocalDraft(record, localRecord) {
+  const protectedText = localRecord?._manualPreviewText ?? localRecord?.confirmedText
+  if (typeof protectedText !== 'string' || (protectedText.length === 0 && localRecord?._manualPreviewText == null)) return record
+
+  const basePreview = record.preview || localRecord.preview || {}
+  return {
+    ...record,
+    confirmedText: localRecord.confirmedText || record.confirmedText,
+    _manualPreviewText: localRecord._manualPreviewText ?? record._manualPreviewText,
+    _manualPreviewUpdatedAt: localRecord._manualPreviewUpdatedAt || record._manualPreviewUpdatedAt,
+    preview: {
+      ...basePreview,
+      text: protectedText,
+      images: basePreview.images || [],
+      videos: basePreview.videos || [],
+    },
+    storyboardDocument: localRecord.confirmedText || record.storyboardDocument,
+  }
+}
+
 function mergeTasks(localTasks, remoteTasks) {
   const byId = new Map()
   for (const task of localTasks || []) {
@@ -12,7 +32,7 @@ function mergeTasks(localTasks, remoteTasks) {
   }
   for (const task of remoteTasks || []) {
     const existing = byId.get(task.taskId) || {}
-    byId.set(task.taskId, { ...existing, ...task })
+    byId.set(task.taskId, protectLocalDraft({ ...existing, ...task }, existing))
   }
   return [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 }
@@ -51,7 +71,7 @@ export function useTaskManager() {
     let record = localRecord
     try {
       const result = await getUserTask(taskId)
-      record = { ...(localRecord || {}), ...result.task }
+      record = protectLocalDraft({ ...(localRecord || {}), ...result.task }, localRecord)
     } catch {}
     if (!record) return
     setSelectedTaskRecord(record)

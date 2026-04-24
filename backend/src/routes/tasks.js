@@ -8,13 +8,17 @@ tasksRouter.use(requireAuth)
 
 function toClientTask(task) {
   const metadata = task.metadata || {}
+  const preview = metadata.confirmedText
+    ? { ...(task.resultPreview || {}), text: metadata.confirmedText }
+    : (task.resultPreview || null)
+
   return {
     id: task.id,
     taskId: task.taskId,
     platform: task.platform,
     status: task.status.toLowerCase(),
     formParams: task.inputParams || null,
-    preview: task.resultPreview || null,
+    preview,
     previewHistory: metadata.previewHistory || [],
     stepName: metadata.stepName || '',
     statusMessage: metadata.statusMessage || '',
@@ -26,6 +30,7 @@ function toClientTask(task) {
     fileList: metadata.fileList || [],
     storyboardDocument: metadata.storyboardDocument || null,
     generationProgress: metadata.generationProgress || null,
+    confirmedText: metadata.confirmedText || '',
   }
 }
 

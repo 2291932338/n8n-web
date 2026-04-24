@@ -71,6 +71,27 @@ export function isRegistered(taskId) {
 
 const TERMINAL = new Set(['completed', 'failed'])
 
+function getProtectedText(record) {
+  if (record?._manualPreviewText !== null && record?._manualPreviewText !== undefined) {
+    return record._manualPreviewText
+  }
+  return record?.confirmedText || null
+}
+
+function protectPreviewText(incomingPreview, current) {
+  const protectedText = getProtectedText(current)
+  if (typeof protectedText !== 'string') {
+    return incomingPreview || current.preview
+  }
+  const basePreview = incomingPreview || current.preview || {}
+  return {
+    ...basePreview,
+    text: protectedText,
+    images: basePreview.images || [],
+    videos: basePreview.videos || [],
+  }
+}
+
 function handleUpdate(taskId, platform, result) {
   const current = getTask(taskId)
   if (!current) {
@@ -158,10 +179,13 @@ function handleUpdate(taskId, platform, result) {
     updates.errorMessage = result.message || '工作流执行失败'
   } else if (result.status === 'completed') {
     updates.status = 'completed'
-    if (result.preview) updates.preview = result.preview
+    updates.preview = protectPreviewText(result.preview, current)
+    if (platform === 'douyin' && (current.confirmedText || result.storyboardDocument)) {
+      updates.storyboardDocument = current.confirmedText || result.storyboardDocument
+    }
   } else if (result.status === 'waiting_user_feedback') {
     updates.status = 'waiting_user_feedback'
-    if (result.preview) updates.preview = result.preview
+    if (result.preview || current._manualPreviewText) updates.preview = protectPreviewText(result.preview, current)
     // 初稿自动记录版本历史
     if (result.preview?.text && (!current.previewHistory || current.previewHistory.length === 0)) {
       updates.previewHistory = [
@@ -190,8 +214,8 @@ function handleUpdate(taskId, platform, result) {
     updates.status = 'completed'
     if (result.downloadUrl) updates.downloadUrl = result.downloadUrl
     if (result.fileList) updates.fileList = result.fileList
-    if (result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
-    if (result.preview) updates.preview = result.preview
+    if (current.confirmedText || result.storyboardDocument) updates.storyboardDocument = current.confirmedText || result.storyboardDocument
+    updates.preview = protectPreviewText(result.preview, current)
   } else {
     updates.status = 'processing'
   }

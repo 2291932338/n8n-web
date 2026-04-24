@@ -5,34 +5,20 @@ import { config, getWebhookUrls, isVideoPlatform, normalizePlatform } from '../c
 import { requireAuth } from '../middleware/auth.js'
 
 import { buildWorkflowStartResponse } from '../utils/workflowStartResponse.js'
+import {
+  buildActionPersistence,
+  mergeResultMetadata,
+  mergeResultPreview,
+  normalizeStatus,
+  terminalResult,
+} from '../utils/workflowTaskResult.js'
 
 export const workflowsRouter = express.Router()
 
 workflowsRouter.use(requireAuth)
 
-function normalizeStatus(result) {
-  if (result.status === 'completed') return 'COMPLETED'
-  if (result.status === 'failed') return 'FAILED'
-  if (result.status === 'waiting_user_feedback') return 'WAITING_USER_FEEDBACK'
-  if (result.stepName === 'xhs_image_review') return 'IMAGE_REVIEW'
-  if (result.stepName === 'douyin_frame_review' || result.stepName === 'douyin_frame_generating') return 'FRAME_REVIEW'
-  if (result.stepName === 'douyin_video_generating') return 'VIDEO_GENERATING'
-  if (result.stepName === 'douyin_video_review') return 'VIDEO_REVIEW'
-  return 'PROCESSING'
-}
-
 function isTerminal(status) {
   return status === 'COMPLETED' || status === 'FAILED'
-}
-
-function terminalResult(task) {
-  const status = task.status.toLowerCase()
-  return {
-    success: status !== 'failed',
-    status,
-    message: task.errorMessage || (status === 'completed' ? '任务已完成' : '任务已结束'),
-    taskId: task.taskId,
-  }
 }
 
 async function parseResponse(res) {
@@ -96,24 +82,19 @@ async function findOwnedTask(userId, taskId) {
   })
 }
 
-async function updateTaskFromResult(taskId, result) {
+async function updateTaskFromResult(userId, taskId, result) {
+  const task = await findOwnedTask(userId, taskId)
+  if (!task) return null
+
   const status = normalizeStatus(result)
   return prisma.workflowTask.update({
-    where: { taskId },
+    where: { taskId: task.taskId },
     data: {
       status,
-      resultPreview: result.preview || undefined,
+      resultPreview: mergeResultPreview(task.resultPreview, task.metadata, result.preview),
       errorMessage: status === 'FAILED' ? (result.message || '工作流执行失败') : null,
       completedAt: isTerminal(status) ? new Date() : undefined,
-      metadata: {
-        downloadUrl: result.downloadUrl || null,
-        fileList: result.fileList || [],
-        storyboardDocument: result.storyboardDocument || null,
-        generationProgress: result.generationProgress || null,
-        stepName: result.stepName || null,
-        statusMessage: result.message || null,
-        raw: result,
-      },
+      metadata: mergeResultMetadata(task.metadata, result),
     },
   })
 }
@@ -188,7 +169,7 @@ workflowsRouter.get('/status', async (req, res, next) => {
     const urls = getWebhookUrls(task.platform)
     const url = `${urls.STATUS_QUERY_URL}?taskId=${encodeURIComponent(taskId)}`
     const result = await getJson(url)
-    await updateTaskFromResult(taskId, result)
+    await updateTaskFromResult(req.user.id, taskId, result)
 
     res.json(result)
   } catch (err) {
@@ -236,13 +217,31 @@ workflowsRouter.post('/action', async (req, res, next) => {
     if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
+    const action = req.body?.action
     const body = {
       taskId,
-      action: req.body?.action,
+      action,
+      platform: task.platform,
+      contentType: isVideoPlatform(task.platform) ? 'video' : 'article',
       feedback: req.body?.feedback || '',
       previousText: req.body?.previousText || '',
+      confirmedText: req.body?.confirmedText || (
+        ['confirm', 'generate_images', 'generate_media'].includes(action) ? (req.body?.previousText || '') : ''
+      ),
     }
     const result = await postJson(urls.USER_ACTION_URL, body)
+    const persistence = buildActionPersistence({
+      action: body.action,
+      existingPreview: task.resultPreview,
+      existingMetadata: task.metadata,
+      previousText: body.previousText,
+      confirmedText: body.confirmedText,
+      upstreamResult: result,
+    })
+    await prisma.workflowTask.update({
+      where: { taskId },
+      data: persistence,
+    })
     await recordEvent({ userId: req.user.id, taskId, action: body.action || 'user_action', status: 'success', metadata: result })
 
     res.json(result)
@@ -261,6 +260,8 @@ workflowsRouter.post('/regenerate-images', async (req, res, next) => {
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.REGENERATE_IMAGE_URL, {
       taskId,
+      platform: task.platform,
+      contentType: isVideoPlatform(task.platform) ? 'video' : 'article',
       confirmedText: req.body?.confirmedText || '',
     })
     await recordEvent({ userId: req.user.id, taskId, action: 'regenerate_images', status: 'success', metadata: result })
@@ -280,6 +281,8 @@ workflowsRouter.post('/frame-action', async (req, res, next) => {
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.FRAME_ACTION_URL, {
       taskId,
+      platform: task.platform,
+      contentType: isVideoPlatform(task.platform) ? 'video' : 'article',
       frameIndex: req.body?.frameIndex,
       action: req.body?.action,
       feedback: req.body?.feedback || '',
@@ -301,6 +304,8 @@ workflowsRouter.post('/generate-video', async (req, res, next) => {
     const urls = getWebhookUrls(task.platform)
     const result = await postJson(urls.GENERATE_VIDEO_URL, {
       taskId,
+      platform: task.platform,
+      contentType: isVideoPlatform(task.platform) ? 'video' : 'article',
       frames: req.body?.frames || [],
       confirmedText: req.body?.confirmedText || '',
     })
@@ -319,7 +324,11 @@ workflowsRouter.post('/regenerate-video', async (req, res, next) => {
     if (isTerminal(task.status)) return res.json(terminalResult(task))
 
     const urls = getWebhookUrls(task.platform)
-    const result = await postJson(urls.REGENERATE_VIDEO_URL, { taskId })
+    const result = await postJson(urls.REGENERATE_VIDEO_URL, {
+      taskId,
+      platform: task.platform,
+      contentType: isVideoPlatform(task.platform) ? 'video' : 'article',
+    })
     await recordEvent({ userId: req.user.id, taskId, action: 'regenerate_video', status: 'success', metadata: result })
     res.json(result)
   } catch (err) {

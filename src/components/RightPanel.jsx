@@ -191,8 +191,14 @@ export default function RightPanel({
   const [isDraftDirty, setIsDraftDirty] = useState(false)
   const draftTextareaRef = useRef(null)
   const draftTextRef = useRef(draftSourceText)
+  const draftSourceTextRef = useRef(draftSourceText)
+  const localDraftEditRef = useRef(false)
 
   useEffect(() => {
+    draftSourceTextRef.current = draftSourceText
+    if (localDraftEditRef.current && draftSourceText === draftTextRef.current) return
+
+    localDraftEditRef.current = false
     draftTextRef.current = draftSourceText
     setDraftText(draftSourceText)
     setIsDraftDirty(false)
@@ -203,9 +209,10 @@ export default function RightPanel({
   }, [draftText, isWaiting])
 
   const handleDraftTextChange = (value) => {
+    localDraftEditRef.current = true
     draftTextRef.current = value
     setDraftText(value)
-    setIsDraftDirty(value !== draftSourceText)
+    setIsDraftDirty(value !== draftSourceTextRef.current)
     onPreviewTextChange?.(value)
   }
 
@@ -215,7 +222,6 @@ export default function RightPanel({
 
     if (currentText !== draftSourceText) {
       onPreviewTextChange?.(currentText)
-      setIsDraftDirty(false)
     }
     return currentText
   }

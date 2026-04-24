@@ -35,6 +35,37 @@ function writeAll(records) {
   }
 }
 
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+function protectExistingDraft(existing, task) {
+  if (!existing) return task
+
+  const explicitlyClearedManual = hasOwn(task, '_manualPreviewText') && task._manualPreviewText === null
+  const incomingManualText = task._manualPreviewText ?? null
+  const existingManualText = !explicitlyClearedManual ? (existing._manualPreviewText ?? null) : null
+  const protectedText = incomingManualText ??
+    existingManualText ??
+    (task.confirmedText || existing.confirmedText || null)
+
+  if (typeof protectedText !== 'string' || (protectedText.length === 0 && incomingManualText == null && existingManualText == null)) return task
+
+  const basePreview = task.preview || existing.preview || {}
+  return {
+    ...task,
+    confirmedText: task.confirmedText ?? existing.confirmedText,
+    _manualPreviewText: task._manualPreviewText ?? existing._manualPreviewText,
+    _manualPreviewUpdatedAt: task._manualPreviewUpdatedAt || existing._manualPreviewUpdatedAt,
+    preview: {
+      ...basePreview,
+      text: protectedText,
+      images: basePreview.images || [],
+      videos: basePreview.videos || [],
+    },
+  }
+}
+
 /**
  * 保存（新建或更新）一条任务记录
  * @param {{
@@ -59,7 +90,8 @@ export function saveTask(task) {
 
   if (existingIdx !== -1) {
     // 更新现有记录
-    records[existingIdx] = { ...records[existingIdx], ...task, updatedAt: now }
+    const protectedTask = protectExistingDraft(records[existingIdx], task)
+    records[existingIdx] = { ...records[existingIdx], ...protectedTask, updatedAt: now }
   } else {
     // 新增记录：超出上限时淘汰最旧的（按 createdAt 升序，最旧在前）
     const newRecord = { ...task, createdAt: task.createdAt || now, updatedAt: now }

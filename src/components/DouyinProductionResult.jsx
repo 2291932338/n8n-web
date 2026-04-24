@@ -93,6 +93,8 @@ export default function DouyinProductionResult({
 
   const files = fileList || []
   const totalFiles = files.length
+  const storyboardText = preview?.text ??
+    (typeof storyboardDocument === 'string' ? storyboardDocument : '')
 
   // 按类型分组
   const grouped = files.reduce((acc, file) => {
@@ -156,7 +158,7 @@ export default function DouyinProductionResult({
       )}
 
       {/* 分镜文档摘要 */}
-      {(storyboardDocument || preview?.text) && (
+      {storyboardText && (
         <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden dark:border-gray-700 dark:bg-gray-800">
           <button
             onClick={() => setShowStoryboard(!showStoryboard)}
@@ -182,7 +184,7 @@ export default function DouyinProductionResult({
           {showStoryboard && (
             <div className="border-t border-gray-100 px-4 py-3 dark:border-gray-700">
               <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-600 dark:text-gray-400 max-h-80 overflow-y-auto">
-                {typeof storyboardDocument === 'string' ? storyboardDocument : (preview?.text || '')}
+                {storyboardText}
               </div>
             </div>
           )}

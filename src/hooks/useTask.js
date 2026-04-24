@@ -51,6 +51,8 @@ const INITIAL_STATE = {
   frames: [],              // [{ index, imageUrl, storyboardText, status }]
   currentFrameIndex: 0,
   confirmedText: '',       // 已确认的文案/稿件
+  _manualPreviewText: null,
+  _manualPreviewUpdatedAt: null,
   videoUrl: null,
   // 抖音专用（批量生成模式）
   workflowMode: 'batch',   // 'batch' | 'interactive'
@@ -99,6 +101,15 @@ function withReferenceImageParams(formData, uploadedFiles) {
  */
 function hydrateFromRecord(record) {
   if (!record) return INITIAL_STATE
+  const localText = record._manualPreviewText ?? record.confirmedText
+  const preview = (typeof localText === 'string' && (localText.length > 0 || record._manualPreviewText != null))
+    ? {
+        ...(record.preview || {}),
+        text: localText,
+        images: record.preview?.images || [],
+        videos: record.preview?.videos || [],
+      }
+    : (record.preview || null)
   return {
     ...INITIAL_STATE,
     taskId: record.taskId,
@@ -107,13 +118,16 @@ function hydrateFromRecord(record) {
     taskStatus: record.status || 'idle',
     stepName: record.stepName || '',
     statusMessage: record.statusMessage || '',
-    preview: record.preview || null,
+    preview,
     previewHistory: record.previewHistory || [],
     errorMessage: record.errorMessage || '',
     createdAt: record.createdAt || null,
     xhsImages: record.xhsImages || [],
     currentXhsImageIndex: record.currentXhsImageIndex || 0,
     frames: record.frames || [],
+    confirmedText: record.confirmedText || '',
+    _manualPreviewText: record._manualPreviewText ?? null,
+    _manualPreviewUpdatedAt: record._manualPreviewUpdatedAt || null,
     videoUrl: record.videoUrl || null,
     // 批量模式字段
     workflowMode: record.workflowMode || 'batch',
@@ -131,7 +145,22 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
   const stateRef = useRef(state)
   useEffect(() => { stateRef.current = state }, [state])
 
-  const manualPreviewTextRef = useRef(null)
+  const manualPreviewTextRef = useRef(initialTaskRecord?._manualPreviewText ?? null)
+
+  const protectPreviewText = useCallback((incomingPreview, currentState) => {
+    const manualText = manualPreviewTextRef.current ?? currentState._manualPreviewText
+    const protectedText = manualText ?? currentState.confirmedText
+    if (typeof protectedText !== 'string' || (protectedText.length === 0 && manualText == null)) {
+      return incomingPreview || currentState.preview
+    }
+    const basePreview = incomingPreview || currentState.preview || {}
+    return {
+      ...basePreview,
+      text: protectedText,
+      images: basePreview.images || [],
+      videos: basePreview.videos || [],
+    }
+  }, [])
 
   // 将 state 补丁合并并持久化
   const patch = useCallback((updates, persist = true) => {
@@ -154,6 +183,9 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
           currentXhsImageIndex: next.currentXhsImageIndex,
           // 抖音专用字段
           frames: next.frames,
+          confirmedText: next.confirmedText,
+          _manualPreviewText: next._manualPreviewText,
+          _manualPreviewUpdatedAt: next._manualPreviewUpdatedAt,
           videoUrl: next.videoUrl,
           // 批量模式字段
           workflowMode: next.workflowMode,
@@ -286,8 +318,8 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
           taskStatus: 'completed',
           downloadUrl: result.downloadUrl || cur.downloadUrl,
           fileList: result.fileList || cur.fileList,
-          storyboardDocument: result.storyboardDocument || cur.storyboardDocument,
-          preview: result.preview || cur.preview,
+          storyboardDocument: cur.confirmedText || result.storyboardDocument || cur.storyboardDocument,
+          preview: protectPreviewText(result.preview, cur),
         })
         return
       }
@@ -319,21 +351,22 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     if (result.status === 'completed') {
-      const updates = { ...common, taskStatus: 'completed', preview: result.preview || cur.preview }
+      const updates = { ...common, taskStatus: 'completed', preview: protectPreviewText(result.preview, cur) }
       if (isVideo && result.videoUrl) updates.videoUrl = result.videoUrl
       if (isVideo && result.downloadUrl) updates.downloadUrl = result.downloadUrl
       if (isVideo && result.fileList) updates.fileList = result.fileList
-      if (isVideo && result.storyboardDocument) updates.storyboardDocument = result.storyboardDocument
+      if (isVideo && (cur.confirmedText || result.storyboardDocument)) updates.storyboardDocument = cur.confirmedText || result.storyboardDocument
       patch(updates)
       return
     }
 
     if (result.status === 'waiting_user_feedback') {
       let newPreview = result.preview || cur.preview
-      if (manualPreviewTextRef.current !== null && cur.taskStatus === 'waiting_user_feedback') {
+      const localDraftText = manualPreviewTextRef.current ?? cur._manualPreviewText
+      if (localDraftText !== null && cur.taskStatus === 'waiting_user_feedback') {
         newPreview = {
           ...(newPreview || {}),
-          text: manualPreviewTextRef.current,
+          text: localDraftText,
           images: newPreview?.images || [],
           videos: newPreview?.videos || [],
         }
@@ -364,8 +397,8 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     }
 
     // 仍在 processing
-    patch({ ...common, taskStatus: 'processing', preview: result.preview || cur.preview })
-  }, [patch])
+    patch({ ...common, taskStatus: 'processing', preview: protectPreviewText(result.preview, cur) })
+  }, [patch, protectPreviewText])
 
   const handlePollError = useCallback((err) => {
     patch({ taskStatus: 'failed', errorMessage: err.message || '轮询出错' })
@@ -382,7 +415,11 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       images: preview?.images || [],
       videos: preview?.videos || [],
     }
-    patch({ preview: nextPreview })
+    patch({
+      preview: nextPreview,
+      _manualPreviewText: text,
+      _manualPreviewUpdatedAt: Date.now(),
+    })
   }, [patch])
 
   // 延迟轮询定时器（用户操作后给 n8n 留出处理时间，避免立即拿到旧状态）
@@ -456,6 +493,9 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       statusMessage: referenceFiles.length > 0 ? '正在上传参考图片...' : '工作流已启动，正在生成内容...',
       createdAt,
       workflowMode,
+      confirmedText: '',
+      _manualPreviewText: null,
+      _manualPreviewUpdatedAt: null,
     })
 
     let uploadedStorageKeys = []
@@ -520,6 +560,8 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       taskStatus: 'processing',
       statusMessage: '修改意见已接收，重新生成中...',
       preview: nextPreview,
+      _manualPreviewText: null,
+      _manualPreviewUpdatedAt: null,
     })
     startPollingAfterDelay(taskId, platform, 5000)
 
@@ -560,6 +602,8 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       preview: nextPreview,
       previewHistory: updated,
       confirmedText,
+      _manualPreviewText: confirmedText,
+      _manualPreviewUpdatedAt: Date.now(),
     })
     startPollingAfterDelay(taskId, platform, 8000)
 
